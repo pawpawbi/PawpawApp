@@ -1,0 +1,23 @@
+# Python packages bundled with the app's Python sidecar, one per line (pip format).
+# Pin exact versions, e.g. dlt==1.2.3. Changing this file reinstalls the runtime on next start.
+# Exact versions of everything they pull in are locked in constraints.txt; regenerate it with
+# `npm run lock:python` after changing this file.
+
+# Data loading (https://dlthub.com). Extras: parquet writes Parquet files to disk; sql-database
+# adds SQLAlchemy for the database connectors. Packages for individual connectors aren't listed
+# here: they're downloaded on first use (see python/sidecar/connectors).
+dlt[parquet,sql-database]==1.30.0
+sqlalchemy==2.0.54
+
+# Excel files
+openpyxl==3.1.5
+
+# Query engine for everything that reads loaded data (previews, table info, SQL transforms) and
+# for reading CSV files. Query engine only: nothing is stored in DuckDB.
+duckdb==1.5.6
+
+# Parquet and Arrow data (dlt's Parquet writer; reading schemas)
+pyarrow==25.0.1
+
+# SQL parser, to find the tables a transformed table's query reads (also a dlt dependency)
+sqlglot==30.21.0

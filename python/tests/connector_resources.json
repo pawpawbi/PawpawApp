@@ -1,0 +1,144 @@
+{
+  "asana": {
+    "projects": true,
+    "sections": true,
+    "stories": true,
+    "tags": true,
+    "tasks": true,
+    "teams": true,
+    "users": true,
+    "workspaces": true
+  },
+  "bing_webmaster": {
+    "page_stats": true
+  },
+  "freshdesk": {
+    "agents": true,
+    "companies": true,
+    "contacts": true,
+    "groups": true,
+    "roles": true,
+    "tickets": true
+  },
+  "github": {
+    "issues": true,
+    "pull_requests": true,
+    "repo_events": true,
+    "stargazers": true
+  },
+  "hubspot": {
+    "companies": true,
+    "contacts": true,
+    "deals": true,
+    "owners": true,
+    "pipelines_deals": true,
+    "pipelines_tickets": true,
+    "products": true,
+    "properties": true,
+    "quotes": true,
+    "stages_timing_deals": true,
+    "stages_timing_tickets": true,
+    "tickets": true
+  },
+  "inbox": {
+    "attachments": true,
+    "messages": true,
+    "uids": true
+  },
+  "jira": {
+    "issues": true,
+    "projects": true,
+    "users": true,
+    "workflows": true
+  },
+  "kafka": {
+    "kafka_messages": true
+  },
+  "matomo": {
+    "reports": true,
+    "visits": true
+  },
+  "mux": {
+    "assets_resource": true,
+    "views_resource": true
+  },
+  "pipedrive": {
+    "activities": true,
+    "activity_types": true,
+    "custom_fields_mapping": true,
+    "deals": true,
+    "deals_flow": true,
+    "deals_participants": true,
+    "files": true,
+    "filters": true,
+    "leads": true,
+    "notes": true,
+    "organizations": true,
+    "persons": true,
+    "pipelines": true,
+    "products": true,
+    "projects": true,
+    "stages": true,
+    "tasks": true,
+    "users": true
+  },
+  "shopify_dlt": {
+    "customers": true,
+    "orders": true,
+    "products": true
+  },
+  "stripe_analytics": {
+    "Account": true,
+    "BalanceTransaction": true,
+    "Coupon": true,
+    "Customer": true,
+    "Event": true,
+    "Invoice": true,
+    "Price": true,
+    "Product": true,
+    "Subscription": true
+  },
+  "workable": {
+    "candidates": true,
+    "custom_attributes": true,
+    "events": true,
+    "jobs": true,
+    "members": true,
+    "recruiters": true,
+    "requisitions": true,
+    "stages": true
+  },
+  "zendesk": {
+    "activities": true,
+    "automations": true,
+    "brands": true,
+    "custom_agent_roles": true,
+    "dynamic_content": true,
+    "group_memberships": true,
+    "groups": true,
+    "job_status": true,
+    "macros": true,
+    "organization_fields": true,
+    "organization_memberships": true,
+    "organizations": true,
+    "recipient_addresses": true,
+    "requests": true,
+    "satisfaction_ratings": true,
+    "sharing_agreements": true,
+    "skips": true,
+    "sla_policies": true,
+    "suspended_tickets": true,
+    "tags": true,
+    "targets": true,
+    "ticket_events": true,
+    "ticket_fields": true,
+    "ticket_forms": true,
+    "ticket_metric_events": true,
+    "ticket_metrics": true,
+    "tickets": true,
+    "triggers": true,
+    "user_fields": true,
+    "users": true,
+    "views": true
+  }
+}

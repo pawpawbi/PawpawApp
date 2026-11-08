@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- The logo for dark backgrounds (the splash screen): a lighter leaf and a cream stem. -->
+  <g transform="rotate(12 128 138)">
+    <path class="stem" d="M128 30 C129 22 131 14 134 6" stroke="#f3efe6" stroke-width="9" stroke-linecap="round" fill="none"/>
+    <path class="leaf" d="M132 12 C148 -2 170 -2 184 8 C168 22 146 24 132 12Z" transform="translate(132 12) scale(1.5) translate(-132 -12)" fill="#8cbf9d"/>
+    <path d="M128 24 C170 22 196 62 194 120 C196 180 188 232 142 248 C112 258 72 248 64 214 C56 184 66 158 66 128 C66 98 60 76 70 52 C78 30 104 25 128 24Z" fill="#c4562a"/>
+  </g>
+</svg>

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{title}}</title>
+    <link rel="stylesheet" href="../assets/report.css" />
+    <script src="../assets/charts.js"></script>
+  </head>
+  <body>
+    <main class="page">
+      <h1>{{title}}</h1>
+
+      <section class="empty-state">
+        <h2>Nothing on this page yet</h2>
+        <p>
+          Ask the assistant for the charts you want here, for example "monthly
+          revenue by region", or edit this page's HTML.
+        </p>
+      </section>
+
+      <!-- Charts: an element for each in this grid, drawn by the script below. -->
+      <div class="grid"></div>
+    </main>
+
+    <script>
+      // pawpaw.barChart, pawpaw.lineChart, pawpaw.stat and pawpaw.table calls go here.
+    </script>
+  </body>
+</html>

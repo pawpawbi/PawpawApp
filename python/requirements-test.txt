@@ -1,0 +1,6 @@
+# Test-only Python packages. Installed into python/.venv-test by scripts/test-python.mjs, never
+# into the bundled runtime. The venv sees the runtime's packages (dlt, pyarrow, duckdb...) and
+# python/constraints.txt keeps any shared dependencies at the bundled versions.
+pytest==9.1.1
+iniconfig==2.3.0
+colorama==0.4.6; sys_platform == "win32"

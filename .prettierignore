@@ -1,0 +1,4 @@
+# Read by oxfmt (npm run lint / lint:fix) as well as .gitignore.
+
+# Vendored dlt connectors: kept byte-for-byte identical to upstream so they can be diffed.
+python/sidecar/verified_sources/

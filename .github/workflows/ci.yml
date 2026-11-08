@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # After `npm ci`, which empties node_modules (the downloaded Python archive is cached under
+      # node_modules/.cache/pawpaw-python). The key matches what setup-python.mjs stamps the
+      # runtime with: the Python build (in the script) and the pinned packages.
+      - name: Cache bundled Python
+        uses: actions/cache@v4
+        with:
+          path: |
+            python/runtime
+            node_modules/.cache/pawpaw-python
+          key: python-${{ runner.os }}-${{ hashFiles('python/requirements.txt', 'python/constraints.txt', 'scripts/setup-python.mjs') }}
+
+      - name: Set up bundled Python
+        run: npm run setup:python
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test

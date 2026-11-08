@@ -1,0 +1,198 @@
+/* The "Ledger" look: warm paper, hairline rules, square corners, serif titles, monospace
+   labels and numbers. The persimmon accent is used sparingly. */
+:root {
+  --bg: #f3efe6;
+  --surface: #fbf9f4;
+  --surface-muted: #ebe6da;
+  /* Hover on --surface-muted. */
+  --surface-hover: #e2dccd;
+  --border: #d9d2c2;
+  --ink: #1f1c17;
+  /* Hover on --ink. */
+  --ink-hover: #3a352c;
+  --ink-muted: #5d574c;
+  --ink-faint: #958d7e;
+  --accent: #b4441b;
+  --accent-hover: #c4562a;
+  --accent-soft: #f3e2d8;
+  /* Transformed tables (built by SQL), as distinct from loaded tables (the accent). */
+  --transformed: #4a5f7a;
+  --transformed-soft: #e4e9ef;
+  --danger: #a12a2a;
+  --danger-soft: #f5e1de;
+  --success: #2f5d46;
+  --success-soft: #e1ebe3;
+  /* Code editors and code in the chat. */
+  --code-bg: #1f1c17;
+  --code-ink: #f3efe6;
+
+  --radius-sm: 2px;
+  --radius: 3px;
+  --radius-lg: 4px;
+  --shadow-sm: none;
+  --shadow-md: 0 10px 30px -12px rgb(40 30 10 / 0.25);
+
+  --font-body:
+    'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Fraunces Variable', Georgia, serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  --display-weight: 600;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+/* Page and project titles are set in italic, section titles upright. */
+h1 {
+  font-style: italic;
+}
+button,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Shared pieces. Components add their own layout (margins, flex) on top. */
+
+.btn-primary {
+  padding: 7px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-ghost {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-weight: 500;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+
+.btn-primary:disabled,
+.btn-ghost:disabled {
+  opacity: 0.5;
+}
+
+.btn-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink-muted);
+  font-size: 13px;
+  text-decoration: underline;
+}
+
+.btn-link.danger {
+  color: var(--danger);
+}
+
+.box-error,
+.box-notice {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.box-error {
+  border-left: 2px solid var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.box-notice {
+  border-left: 2px solid var(--success);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+/* A stroke icon drawn with currentColor. */
+.icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The boxed icon above an empty state's heading. */
+.empty-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.empty-icon svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
