@@ -119,6 +119,20 @@ const signOut = () => run('sign-out', () => window.api.account.signOut());
           />
           <small v-if="mode === 'sign-up'">At least 8 characters.</small>
         </label>
+        <p v-if="mode === 'sign-up'" class="agree">
+          By creating an account you agree to the
+          <a href="https://pawpawbi.com/terms/" target="_blank" rel="noreferrer"
+            >terms of use</a
+          >
+          and
+          <a
+            href="https://pawpawbi.com/privacy/"
+            target="_blank"
+            rel="noreferrer"
+            >privacy policy</a
+          >.
+        </p>
+
         <button class="btn-primary" type="submit" :disabled="!!busy">
           {{
             busy === 'email'
@@ -264,5 +278,15 @@ const signOut = () => run('sign-out', () => window.api.account.signOut());
 
 .form .btn-primary {
   align-self: flex-start;
+}
+
+.agree {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+}
+
+.agree a {
+  color: var(--accent);
 }
 </style>
