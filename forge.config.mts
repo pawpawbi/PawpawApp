@@ -10,7 +10,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 /** What's in python/ only for development, taken back out of the packaged app. */
-const PYTHON_DEV_ONLY = ['.venv-test', 'tests', 'requirements-test.txt'];
+const PYTHON_DEV_ONLY = ['.venv-test', '.connector-envs-test', 'tests', 'requirements-test.txt'];
 
 const config: ForgeConfig = {
   packagerConfig: {
