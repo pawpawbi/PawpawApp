@@ -36,19 +36,43 @@ def _build_github(settings: dict):
     return [resource for source in sources for resource in source.resources.values()]
 
 
-def _build_strapi(settings: dict):
-    from verified_sources.strapi import strapi_source
+def _strapi_collection(base_url: str, token: str, collection: str):
+    """One Strapi collection, a page at a time. The vendored source's helper does the same but
+    only ever over https, and a self-hosted Strapi is often plain http on a local network."""
+    from dlt.sources.helpers import requests
 
-    domain = required(settings, "domain", "Domain")
-    domain = re.sub(r"^https?://", "", domain).rstrip("/")
+    page_size = 100  # Strapi's default upper limit
+    start = 0
+    while True:
+        response = requests.get(
+            f"{base_url}/api/{collection}",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"pagination[start]": start, "pagination[limit]": page_size, "pagination[withCount]": 1},
+        )
+        body = response.json()
+        rows = body.get("data") or []
+        if isinstance(rows, dict):  # a single type, not a collection
+            yield rows
+            return
+        yield from rows
+        start += page_size
+        if not rows or start >= body.get("meta", {}).get("pagination", {}).get("total", 0):
+            return
+
+
+def _build_strapi(settings: dict):
+    import dlt
+
+    domain = required(settings, "domain", "Domain").rstrip("/")
+    base_url = domain if re.match(r"^https?://", domain) else f"https://{domain}"
+    token = required(settings, "api_secret_key", "API token")
     endpoints = lines(settings, "endpoints")
     if not endpoints:
         raise ValueError("Collections is required.")
-    return strapi_source(
-        endpoints=endpoints,
-        api_secret_key=required(settings, "api_secret_key", "API token"),
-        domain=domain,
-    )
+    return [
+        dlt.resource(_strapi_collection(base_url, token, name), name=name, write_disposition="replace")
+        for name in endpoints
+    ]
 
 
 def _build_mux(settings: dict):
@@ -171,7 +195,7 @@ CONNECTORS: list[Connector] = [
                 "Domain",
                 required=True,
                 placeholder="cms.example.com",
-                help="The address of your Strapi server, without https://.",
+                help="The address of your Strapi server. Start it with http:// if the server has no HTTPS.",
             ),
             Field(
                 "api_secret_key",

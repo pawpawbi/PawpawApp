@@ -37,7 +37,9 @@ pytestmark = pytest.mark.services
 SETTINGS_FILE = os.environ.get("PAWPAW_SERVICES_SETTINGS", "")
 CASES: dict[str, dict] = {}
 if SETTINGS_FILE and SETTINGS_FILE != "0" and Path(SETTINGS_FILE).exists():
-    CASES = json.loads(Path(SETTINGS_FILE).read_text(encoding="utf-8"))["cases"]
+    # {settings_dir} in the file stands for its own folder, for settings that are paths (key files).
+    _text = Path(SETTINGS_FILE).read_text(encoding="utf-8")
+    CASES = json.loads(_text.replace("{settings_dir}", Path(SETTINGS_FILE).resolve().parent.as_posix()))["cases"]
 CASE_IDS = list(CASES)
 JOB_TIMEOUT = 900
 

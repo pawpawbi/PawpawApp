@@ -119,7 +119,7 @@ Connecting lists the database's tables, which also tests the connection.
 - **Workable** (`workable`): Optionally loads job and candidate details.
 - **REST API** (`rest_api`): Any JSON API: a base address, endpoints, and a bearer token, API key or user name and password. Pagination is detected.
 - **GitHub** (`github`): Without a token, only a public repository's recent events load. A token adds issues, pull requests, reactions, comments and stargazers, and private repositories.
-- **Strapi** (`strapi`): An API token and the collection names.
+- **Strapi** (`strapi`): The server's address (starting with `http://` if it has no HTTPS), a read-only API token and the collection names as they appear in the API address, such as `articles`.
 - **Mux** (`mux`): Loads only the first 100 assets and yesterday's views.
 - **Kafka** (`kafka`): Reads up to the messages that exist when the load starts. Connect shows one entry, `kafka_messages`, but the load writes one table per topic, named after the topic. Each row is one message: its text in `_kafka__data` (JSON stays as text; parse it in a transform), with `_kafka__topic`, `_kafka__partition`, `_kafka__offset` and the time in `_kafka__ts__value`.
 - **Amazon Kinesis** (`kinesis`): Without a start date, reads everything the stream still keeps.
