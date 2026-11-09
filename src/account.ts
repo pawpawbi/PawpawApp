@@ -123,6 +123,30 @@ export async function signedInServer() {
   return { server: pawpawServer(requireServerUrl(), saved.token), saved };
 }
 
+/**
+ * The server and sign-in token, for the free assistant, which needs a PawpawBI account. Only the
+ * main process ever sees the token.
+ */
+export async function signedInToken(): Promise<{ url: string; token: string }> {
+  const saved = await readSaved();
+  const url = serverUrl();
+  if (!saved || !url) {
+    throw new SignedOutError(
+      'Sign in to PawpawBI in Assistant settings to use the free assistant.',
+    );
+  }
+  return { url, token: saved.token };
+}
+
+/** Whether someone is signed in, and whether their email address is verified. */
+export async function accountStatus() {
+  const saved = await readSaved();
+  return {
+    signedIn: !!saved && serverUrl() !== null,
+    verified: saved?.account.emailVerified === true,
+  };
+}
+
 /** Forgets the saved sign-in if `error` says it's no longer valid; rethrows it either way. */
 export async function forgetIfSignedOut(error: unknown): Promise<never> {
   if (error instanceof SignedOutError) await removePath(accountPath());

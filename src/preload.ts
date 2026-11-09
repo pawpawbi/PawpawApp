@@ -109,6 +109,7 @@ const assistant: AssistantApi = {
   setKey: (provider, key) =>
     ipcRenderer.invoke('assistant:set-key', provider, key),
   removeKey: (provider) => ipcRenderer.invoke('assistant:remove-key', provider),
+  usage: () => ipcRenderer.invoke('assistant:usage'),
   listModels: (provider) =>
     ipcRenderer.invoke('assistant:list-models', provider),
   send: (text) => ipcRenderer.invoke('assistant:send', text),

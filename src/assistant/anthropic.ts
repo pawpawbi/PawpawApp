@@ -116,10 +116,11 @@ export function buildBody(request: ModelRequest) {
   };
 }
 
-/** Collects a streamed response. */
+/** Collects a streamed response. `name` says who stopped, in an error. */
 export async function readResponse(
   events: AsyncIterable<ServerEvent>,
   onText: (text: string) => void,
+  name = NAME,
 ): Promise<ModelResponse> {
   let text = '';
   const calls: (ToolCall & { json: string })[] = [];
@@ -171,7 +172,7 @@ export async function readResponse(
         break;
       case 'error':
         throw new ProviderError(
-          `${NAME} stopped with an error: ${payload.error?.message ?? 'unknown error'}`,
+          `${name} stopped with an error: ${payload.error?.message ?? 'unknown error'}`,
         );
     }
   }

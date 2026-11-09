@@ -1,4 +1,4 @@
-// Model choices for each provider. No Electron imports.
+// The assistant's providers, and model choices for those with a key. No Electron imports.
 import type { ProviderId } from './types';
 
 export const PROVIDERS: Record<
@@ -6,12 +6,18 @@ export const PROVIDERS: Record<
   {
     name: string;
     product: string;
-    /** Where to get an API key, or (for a local provider) the app itself. */
+    /** Where to get an API key, or (for PawpawBI) the website. */
     url: string;
-    /** False for Ollama: it runs on this computer and needs no key. */
+    /** False for PawpawBI: it needs a PawpawBI account instead. */
     needsKey: boolean;
   }
 > = {
+  pawpaw: {
+    name: 'PawpawBI',
+    product: 'PawpawBI',
+    url: 'https://pawpawbi.com',
+    needsKey: false,
+  },
   anthropic: {
     name: 'Anthropic',
     product: 'Claude',
@@ -24,20 +30,19 @@ export const PROVIDERS: Record<
     url: 'https://platform.openai.com/api-keys',
     needsKey: true,
   },
-  ollama: {
-    name: 'Ollama',
-    product: 'Ollama',
-    url: 'https://ollama.com/download',
-    needsKey: false,
-  },
 };
 
-/** Used until the provider's own list of models has been fetched. */
+/** The provider for anyone who hasn't chosen one: the free assistant. */
+export const DEFAULT_PROVIDER: ProviderId = 'pawpaw';
+
+/**
+ * Used until the provider's own list of models has been fetched. PawpawBI chooses its own model,
+ * which the app doesn't show.
+ */
 export const DEFAULT_MODELS: Record<ProviderId, string> = {
+  pawpaw: '',
   anthropic: 'claude-opus-5-5',
   openai: 'gpt-5',
-  // Whatever the user has installed: chosen from Ollama's list.
-  ollama: '',
 };
 
 /**
@@ -50,11 +55,11 @@ export function pickModel(
   available: string[],
   saved?: string,
 ): string {
+  if (provider === 'pawpaw') return '';
   if (saved && (available.includes(saved) || !available.length)) return saved;
   if (!available.length) return DEFAULT_MODELS[provider];
   if (available.includes(DEFAULT_MODELS[provider]))
     return DEFAULT_MODELS[provider];
-  if (provider === 'ollama') return available[0];
   if (provider === 'anthropic') {
     return available.find((id) => id.includes('opus')) ?? available[0];
   }

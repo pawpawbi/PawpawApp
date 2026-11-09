@@ -1,15 +1,20 @@
 <script setup lang="ts">
-// Assistant settings: which provider (Claude, ChatGPT, or Ollama on this computer), its API key
-// and model. Keys are stored encrypted on this computer by the main process and never come back
-// to this page. Ollama needs no key.
+// Assistant settings: which provider (the free assistant with a PawpawBI account, or Claude or
+// ChatGPT with the user's own API key), the key and model. Keys are stored encrypted on this
+// computer by the main process and never come back to this page. The free assistant needs a
+// PawpawBI account instead, signed in here; it shows how much of the month's allowance is used,
+// never its model.
 import { computed, onMounted, ref, watch } from 'vue';
-import { PROVIDERS, pickModel } from '../assistant/models';
+import { DEFAULT_PROVIDER, PROVIDERS, pickModel } from '../assistant/models';
 import { errorMessage } from '../errors';
 import type {
+  AccountState,
+  AllowanceUsage,
   AssistantPermissions,
   AssistantProvider,
   AssistantSettings,
 } from '../shared/types';
+import AccountPanel from './AccountPanel.vue';
 
 const emit = defineEmits<{
   close: [];
@@ -17,7 +22,7 @@ const emit = defineEmits<{
 }>();
 
 const settings = ref<AssistantSettings | null>(null);
-const provider = ref<AssistantProvider>('anthropic');
+const provider = ref<AssistantProvider>(DEFAULT_PROVIDER);
 const key = ref('');
 const replacing = ref(false);
 const models = ref<string[]>([]);
@@ -32,8 +37,33 @@ async function setPermissions(permissions: AssistantPermissions) {
   await reload();
 }
 const hasKey = computed(() => settings.value?.hasKey[provider.value] ?? false);
-/** Whether models can be listed: a key is saved, or the provider doesn't need one. */
-const canList = computed(() => !info.value.needsKey || hasKey.value);
+/** Whether models can be listed and chosen: only with a saved key. */
+const canList = computed(() => info.value.needsKey && hasKey.value);
+
+// The free assistant: the PawpawBI account and this month's allowance.
+const account = ref<AccountState | null>(null);
+const usage = ref<AllowanceUsage | null>(null);
+
+async function onAccount(next: AccountState) {
+  account.value = next;
+  await reload();
+  usage.value =
+    next.email && next.emailVerified
+      ? await window.api.assistant.usage()
+      : null;
+}
+
+const usageText = computed(() => {
+  if (!usage.value) return '';
+  const resets = new Date(usage.value.resetsAt).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'UTC',
+  });
+  return usage.value.share >= 1
+    ? `You've used this month's free assistant. It starts again on ${resets}.`
+    : `${Math.round(usage.value.share * 100)}% of this month's allowance used. It starts again on ${resets}.`;
+});
 
 async function reload() {
   settings.value = await window.api.assistant.getSettings();
@@ -173,7 +203,7 @@ function onKeydown(event: KeyboardEvent) {
           />
           <span class="provider-name">{{ p.product }}</span>
           <span class="provider-by">{{
-            p.needsKey ? `by ${p.name}` : 'On this computer'
+            p.needsKey ? `Your key, by ${p.name}` : 'Free with an account'
           }}</span>
           <span v-if="settings?.hasKey[id]" class="provider-key"
             >Key saved</span
@@ -182,23 +212,25 @@ function onKeydown(event: KeyboardEvent) {
       </fieldset>
 
       <section v-if="!info.needsKey" class="section">
-        <h3>Ollama</h3>
+        <h3>Free with a PawpawBI account</h3>
         <p class="hint first">
-          Uses models running in Ollama on this computer, so your data never
-          leaves it. Get Ollama from
-          <a :href="info.url" target="_blank" rel="noreferrer">ollama.com</a>,
-          then download a model that can use tools, for example with
-          <code>ollama pull qwen3</code>. Local models are slower and less
-          capable than Claude or ChatGPT.
+          The assistant is included with a free PawpawBI account, with a monthly
+          allowance. Or choose Claude or ChatGPT above to use your own API key.
         </p>
-        <button
-          v-if="error"
-          class="btn-link"
-          :disabled="busy === 'models'"
-          @click="loadModels"
-        >
-          Check again
-        </button>
+        <AccountPanel purpose="assistant" @changed="onAccount" />
+        <div v-if="usage" class="allowance">
+          <div
+            class="meter"
+            role="meter"
+            aria-label="This month's allowance used"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuenow="Math.round(usage.share * 100)"
+          >
+            <span :style="{ width: `${usage.share * 100}%` }" />
+          </div>
+          <p class="hint">{{ usageText }}</p>
+        </div>
       </section>
 
       <section v-else class="section">
@@ -291,8 +323,9 @@ function onKeydown(event: KeyboardEvent) {
         never in project files.
       </p>
       <p v-else class="privacy">
-        Everything stays on this computer: your messages and data go only to
-        Ollama.
+        Your messages, and the samples of your data the assistant looks at, go
+        through PawpawBI. PawpawBI doesn't keep
+        them, only how much of your allowance each reply used.
       </p>
 
       <footer class="foot">
@@ -469,12 +502,21 @@ select {
   font-size: 12px;
 }
 
-.hint code {
-  padding: 1px 5px;
+.allowance {
+  margin-top: 12px;
+}
+
+.meter {
+  height: 6px;
+  overflow: hidden;
   border-radius: var(--radius-sm);
   background: var(--surface-muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
+}
+
+.meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
 }
 
 .hint.first {

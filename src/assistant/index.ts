@@ -6,7 +6,7 @@ import type {
   AssistantPermissions,
   AssistantProvider,
 } from '../shared/types';
-import { providerFor } from './providers';
+import { freeAssistant, providerFor } from './providers';
 import { answer, reply, stop } from './reply';
 import {
   getSettings,
@@ -41,6 +41,13 @@ export function registerAssistantHandlers() {
     async (_event, provider: AssistantProvider) =>
       (await providerFor(provider)).listModels(AbortSignal.timeout(20_000)),
   );
+  ipcMain.handle('assistant:usage', async () => {
+    try {
+      return await (await freeAssistant()).usage(AbortSignal.timeout(20_000));
+    } catch {
+      return null;
+    }
+  });
   ipcMain.handle('assistant:send', (event, text: string) => reply(event, text));
   ipcMain.handle('assistant:retry', (event) => reply(event, null));
   ipcMain.handle('assistant:stop', () => stop());

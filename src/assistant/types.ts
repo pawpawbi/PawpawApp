@@ -1,5 +1,6 @@
 // The assistant's provider-neutral pieces: the conversation, tools, and what a provider streams
-// back. Each provider (anthropic.ts, openai.ts, ollama.ts) translates these to and from its own API.
+// back. Each provider (anthropic.ts, openai.ts, and pawpaw.ts through the PawpawBI server)
+// translates these to and from its own API.
 // No Electron imports, so all of this is tested with plain Node.
 import type {
   AssistantProvider,

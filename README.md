@@ -28,7 +28,8 @@ Early development. Working:
   PawpawBI web console), as a single HTML file to send by email (it opens in any web browser,
   offline), or to a folder for hosting anywhere, e.g. S3. The PawpawBI server's API is
   [docs/pawpaw-server-api.md](docs/pawpaw-server-api.md); the server itself is a separate project.
-- **Assistant:** chats with Claude or ChatGPT using your own API key, or a local model in Ollama.
+- **Assistant:** free with a PawpawBI account (with a
+  monthly allowance), or chats with Claude or ChatGPT using your own API key.
   It can look at everything in the project, add, change, load and remove data sources, shape
   tables with SQL and build the report (pages, files and datasets), asking before each change,
   with Undo. What it's told is in [docs/guides/](docs/guides/).

@@ -1,13 +1,15 @@
 // The assistant's settings, kept on this computer, never in a project:
-//   userData/assistant/settings.json   which provider, and the model chosen for each
+//   userData/assistant/settings.json   which provider, and the model chosen for each with a key
 //   userData/assistant/<provider>.key  that provider's API key, encrypted with the OS's secure
 //                                      storage (Electron safeStorage)
+// The free assistant (PawpawBI) needs no key: it uses the PawpawBI sign-in (account.ts).
 import { app, safeStorage } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { accountStatus } from '../account';
 import { removePath, writeJson } from '../fs-json';
 import type { AssistantPermissions, AssistantSettings } from '../shared/types';
-import { DEFAULT_MODELS, PROVIDERS } from './models';
+import { DEFAULT_MODELS, DEFAULT_PROVIDER, PROVIDERS } from './models';
 import type { ProviderId } from './types';
 
 const PROVIDER_IDS = Object.keys(PROVIDERS) as ProviderId[];
@@ -31,7 +33,7 @@ interface SettingsFile {
 
 async function readFile(): Promise<SettingsFile> {
   const file: SettingsFile = {
-    provider: 'anthropic',
+    provider: DEFAULT_PROVIDER,
     models: { ...DEFAULT_MODELS },
     permissions: 'ask',
   };
@@ -59,17 +61,18 @@ const exists = (p: string) =>
 /** The settings the UI shows. Keys are never sent back, only whether one is saved. */
 export async function getSettings(): Promise<AssistantSettings> {
   const file = await readFile();
-  const hasKey = { anthropic: false, openai: false, ollama: false };
+  const hasKey = { pawpaw: false, anthropic: false, openai: false };
   for (const id of PROVIDER_IDS) {
     if (PROVIDERS[id].needsKey) hasKey[id] = await exists(keyPath(id));
   }
+  const account = await accountStatus();
   return {
     provider: file.provider,
     models: file.models,
     hasKey,
     ready: PROVIDERS[file.provider].needsKey
       ? hasKey[file.provider]
-      : !!file.models[file.provider],
+      : account.signedIn && account.verified,
     permissions: file.permissions,
   };
 }

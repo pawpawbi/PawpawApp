@@ -289,13 +289,9 @@ test('replies are split into text and code, with inline code and bold', () => {
   ]);
 });
 
-test('Ollama has no default model: the first installed one that can use tools is used', () => {
-  assert.equal(pickModel('ollama', [], undefined), '');
-  assert.equal(pickModel('ollama', ['qwen3:8b', 'qwen3.5:2b']), 'qwen3:8b');
-  assert.equal(
-    pickModel('ollama', ['qwen3:8b', 'qwen3.5:2b'], 'qwen3.5:2b'),
-    'qwen3.5:2b',
-  );
+test('PawpawBI chooses the free assistant’s model: none is picked or saved in the app', () => {
+  assert.equal(pickModel('pawpaw', [], undefined), '');
+  assert.equal(pickModel('pawpaw', ['claude-sonnet-5-5'], 'claude-x'), '');
 });
 
 test('a message that got no reply (stopped or failed) is marked, so it is not answered later', () => {

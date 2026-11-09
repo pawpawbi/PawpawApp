@@ -488,20 +488,32 @@ export interface ReportApi {
 
 // --- The assistant (src/assistant/) -----------------------------------------------------------
 
-export type AssistantProvider = 'anthropic' | 'openai' | 'ollama';
+/** "pawpaw": the free assistant, with a PawpawBI account. The others use the user's own key. */
+export type AssistantProvider = 'pawpaw' | 'anthropic' | 'openai';
 
 /** The assistant's settings. API keys never leave the main process; only whether one is saved. */
 export interface AssistantSettings {
   provider: AssistantProvider;
   models: Record<AssistantProvider, string>;
   hasKey: Record<AssistantProvider, boolean>;
-  /** Whether the chosen provider is set up: a key saved, or (for Ollama) a model chosen. */
+  /**
+   * Whether the chosen provider is set up: a key saved, or (for the free assistant) signed in to
+   * PawpawBI with a verified email address.
+   */
   ready: boolean;
   /** "ask": the assistant asks before each change (the default); "allow": it doesn't. */
   permissions: AssistantPermissions;
 }
 
 export type AssistantPermissions = 'ask' | 'allow';
+
+/** The free assistant's allowance this month. */
+export interface AllowanceUsage {
+  /** How much is used, from 0 to 1. */
+  share: number;
+  /** When it starts again (ISO timestamp). */
+  resetsAt: string;
+}
 
 /** A change the assistant made, which can be undone. */
 export interface AssistantChange {
@@ -554,6 +566,11 @@ export interface AssistantApi {
   removeKey: (provider: AssistantProvider) => Promise<void>;
   /** The models the saved key can use. Also checks the key works. */
   listModels: (provider: AssistantProvider) => Promise<string[]>;
+  /**
+   * How much of this month's free assistant allowance is used, or null when not signed in (or
+   * PawpawBI can't be reached).
+   */
+  usage: () => Promise<AllowanceUsage | null>;
   /** Sends a message and resolves when the reply is finished. Progress arrives through onEvent. */
   send: (text: string) => Promise<AssistantEnd>;
   /** Tries the last reply again (after an error), without sending a new message. */

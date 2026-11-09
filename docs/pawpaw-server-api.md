@@ -317,8 +317,11 @@ account has a free monthly allowance.
 [Anthropic's Messages API](https://docs.anthropic.com/en/api/messages) and returns its
 [event stream](https://docs.anthropic.com/en/api/messages-streaming) unchanged, so the app reads
 it as it reads Anthropic's. The body may only have `model` (one of `models`), `max_tokens` (at
-most `maxTokens`), `stream` (`true`), `system` (text blocks, which may have `cache_control`),
-`messages` and `tools`, and is at most 4 MB; anything else is `400`. The app sends
+most `maxTokens`), `stream` (`true`), `system` (text, or text blocks), `messages` (`user` and
+`assistant` messages of text, `tool_use` and `tool_result` blocks; a tool result's content is
+text) and `tools` (the app's own: `name`, `description` and `input_schema`, never Anthropic's
+server tools), and is at most 4 MB. Any block or tool may have `cache_control`
+`{"type": "ephemeral"}`. Anything else is `400`. The app sends
 `Authorization: Bearer <token>` instead of an API key; `anthropic-version` and other Anthropic
 headers are ignored. A problem after the stream has started (e.g. Anthropic is overloaded)
 arrives as the stream's `error` event.
@@ -327,8 +330,9 @@ Refused before a reply starts:
 
 - `403` `email_not_verified`: the account's email address isn't verified yet.
 - `429` `allowance_used`: this month's allowance is used up; the message says when it resets.
-- `429` `too_many_requests`: too many requests in a short time, or a reply is already running
-  for this account (one at a time), with `Retry-After`.
+- `429` `too_many_requests`: too many requests in a short time, a reply is already running for
+  this account (one at a time), the assistant is busy, or the free assistant has reached its daily
+  limit for everyone, with `Retry-After`.
 
 Every reply counts against the allowance, including one the user stops partway (closing the
 connection stops it; what was generated still counts). The server keeps no conversation: it

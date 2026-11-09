@@ -6,6 +6,7 @@ import http from 'node:http';
 import { after, before, test } from 'node:test';
 import { gunzipSync } from 'node:zlib';
 import { startStubServer } from '../../scripts/pawpaw-server-stub.mjs';
+import { pawpaw } from '../../src/assistant/pawpaw.ts';
 import {
   isGone,
   isReportUrl,
@@ -674,4 +675,33 @@ test('a pass opens a members-only report in the browser, as the account that ask
     outsider.server.reportPass(report.id),
     (e: PawpawServerError) => e.status === 404,
   );
+});
+
+test('the free assistant needs a verified address, replies as Claude would, and counts each reply', async () => {
+  const user = await account('assistant@example.com');
+  const request = {
+    model: '',
+    system: 'Help.',
+    context: '',
+    turns: [{ role: 'user' as const, text: 'Hi' }],
+    tools: [],
+    maxTokens: 8192,
+  };
+  const signal = new AbortController().signal;
+  await assert.rejects(
+    pawpaw(stub.url, user.token).complete(request, () => {}, signal),
+    /Verify your email address/,
+  );
+
+  await fetch(`${stub.url}/auth/verify-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: lastLink('verify', user.email) }),
+  });
+  const provider = pawpaw(stub.url, user.token);
+  const response = await provider.complete(request, () => {}, signal);
+  assert.match(response.text, /stand-in server's assistant/);
+  const usage = await provider.usage();
+  assert.ok(usage.share > 0 && usage.share < 1, `${usage.share}`);
+  assert.ok(Date.parse(usage.resetsAt) > Date.now());
 });

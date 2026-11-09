@@ -1,13 +1,19 @@
-// The provider adapters (src/assistant/anthropic.ts, openai.ts) and the event-stream parser.
+// The provider adapters (src/assistant/anthropic.ts, openai.ts, pawpaw.ts) and the event-stream
+// parser.
 // Streams below follow each API's documented format; requests are checked for the shape each
 // API requires.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as claude from '../../src/assistant/anthropic.ts';
-import * as local from '../../src/assistant/ollama.ts';
 import * as gpt from '../../src/assistant/openai.ts';
+import * as free from '../../src/assistant/pawpaw.ts';
 import { readEvents } from '../../src/assistant/sse.ts';
-import type { ModelRequest, Turn } from '../../src/assistant/types.ts';
+import {
+  ProviderError,
+  type ModelRequest,
+  type Turn,
+} from '../../src/assistant/types.ts';
+import { SignedOutError } from '../../src/pawpaw-server.ts';
 
 /** A byte stream delivered in the given pieces. */
 async function* chunks(...pieces: string[]) {
@@ -370,190 +376,163 @@ test('OpenAI: the key goes in a bearer header and a missing model is explained',
   assert.equal(seen?.get('authorization'), 'Bearer sk-test');
 });
 
-// --- Ollama (shapes as returned by Ollama 0.17.7) -------------------------------------------
-
-test('Ollama: system first, each tool result follows its call by tool name', () => {
-  const messages = local.toMessages('Be helpful.', 'Project: Sales.', turns);
-  assert.deepEqual(
-    messages.map((m) => m.role),
-    [
-      'system',
-      'system',
-      'assistant',
-      'user',
-      'assistant',
-      'tool',
-      'tool',
-      'assistant',
-      'user',
-    ],
-  );
-  assert.deepEqual(messages[4], {
-    role: 'assistant',
-    content: 'Looking.',
-    tool_calls: [
-      {
-        id: 'call_1',
-        function: { name: 'preview_table', arguments: { table: 'orders' } },
-      },
-      { id: 'call_2', function: { name: 'list_tables', arguments: {} } },
-    ],
-  });
-  assert.deepEqual(messages[5], {
-    role: 'tool',
-    tool_name: 'preview_table',
-    content: '{"rows":[]}',
-  });
-});
-
-test('Ollama: the context window is set, never above the model’s; thinking is turned off', () => {
-  const thinker = local.buildBody(request, {
-    thinks: true,
-    contextLength: 262144,
-  });
-  assert.equal(thinker.options.num_ctx, local.CONTEXT_TOKENS);
-  assert.equal(thinker.options.num_predict, 1000);
-  assert.equal(thinker.think, false);
-  assert.equal(thinker.tools[0].function.name, 'list_tables');
-
-  const small = local.buildBody(request, {
-    thinks: false,
-    contextLength: 4096,
-  });
-  assert.equal(small.options.num_ctx, 4096);
-  assert.equal(
-    'think' in small,
-    false,
-    'models that can’t think are not sent the option',
-  );
-});
-
-const ollamaStream = [
-  '{"model":"qwen3.5:2b","message":{"role":"assistant","content":"Let me "},"done":false}',
-  '{"model":"qwen3.5:2b","message":{"role":"assistant","content":"check."},"done":false}',
-  '{"model":"qwen3.5:2b","message":{"role":"assistant","content":"","tool_calls":[{"id":"call_gvesv5is","function":{"index":0,"name":"count_rows","arguments":{"table":"orders"}}}]},"done":false}',
-  '{"model":"qwen3.5:2b","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"list_tables","arguments":{}}}]},"done":false}',
-  '{"model":"qwen3.5:2b","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":291,"eval_count":26}',
-  '',
-].join('\n');
-
-test('Ollama: a streamed reply with text and tool calls, even though it says "stop"', async () => {
-  const streamed: string[] = [];
-  const response = await local.readResponse(
-    local.readLines(sliced(ollamaStream, 13)),
-    (t) => streamed.push(t),
-  );
-  assert.equal(streamed.join(''), 'Let me check.');
-  assert.equal(response.stop, 'tools');
-  assert.deepEqual(response.toolCalls[0], {
-    id: 'call_gvesv5is',
-    name: 'count_rows',
-    input: { table: 'orders' },
-  });
-  assert.equal(response.toolCalls[1].name, 'list_tables');
-  assert.match(
-    response.toolCalls[1].id,
-    /^call_/,
-    'a call without an ID is given one',
-  );
-  assert.deepEqual(response.usage, { input: 291, output: 26, cachedInput: 0 });
-});
-
-test('Ollama: an error line mid-stream becomes an error', async () => {
-  await assert.rejects(
-    local.readResponse(
-      local.readLines(chunks('{"error":"out of memory"}\n')),
-      () => {},
-    ),
-    /out of memory/,
-  );
-});
-
-/** A fake Ollama server: answers by path. */
-const fakeOllama = (routes: Record<string, (body: any) => Response>) =>
-  (async (url: string, init?: RequestInit) => {
-    const path = new URL(url).pathname;
-    const handler = routes[path];
-    if (!handler) return new Response('{"error":"not found"}', { status: 404 });
-    return handler(init?.body ? JSON.parse(String(init.body)) : null);
-  }) as typeof fetch;
+// --- PawpawBI (the free assistant, through the server) ----------------------------------------
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), { status });
 
-test('Ollama: only installed models that can use tools are offered', async () => {
-  const provider = local.ollama(
-    'http://ollama.test',
-    fakeOllama({
-      '/api/tags': () =>
-        json({
-          models: [
-            { name: 'qwen3:8b' },
-            { name: 'deepseek-r1:latest' },
-            { name: 'old:7b' },
-          ],
-        }),
-      '/api/show': (body) =>
-        json(
-          body.model === 'qwen3:8b'
-            ? { capabilities: ['completion', 'tools', 'thinking'] }
-            : body.model === 'deepseek-r1:latest'
-              ? { capabilities: ['completion'] }
-              : {}, // An older Ollama: no capabilities listed.
-        ),
-    }),
+/** A fake PawpawBI server: the assistant's two endpoints, and what it was sent. */
+function fakeServer(
+  reply: () => Response = () => new Response(anthropicStream),
+  info: unknown = {
+    models: ['claude-sonnet-5-5'],
+    maxTokens: 800,
+    usage: { share: 0.25, resetsAt: '2026-12-01T00:00:00Z' },
+  },
+) {
+  const sent: { method: string; path: string; headers: Headers; body: any }[] =
+    [];
+  const fakeFetch = (async (url: string, init?: RequestInit) => {
+    const path = new URL(url).pathname;
+    sent.push({
+      method: init?.method ?? 'GET',
+      path,
+      headers: new Headers(init?.headers),
+      body: init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    if (path === '/v1/assistant') return json(info);
+    if (path === '/v1/assistant/messages') return reply();
+    return json({ error: { code: 'not_found', message: 'Not found.' } }, 404);
+  }) as typeof fetch;
+  return { sent, fakeFetch };
+}
+
+test('PawpawBI: signed in with the account, on the server’s model and cap, read as Anthropic’s stream', async () => {
+  const { sent, fakeFetch } = fakeServer();
+  const provider = free.pawpaw('https://api.test/v1/', 'tok_1', fakeFetch);
+  const streamed: string[] = [];
+  const signal = new AbortController().signal;
+  const response = await provider.complete(
+    { ...request, model: '' },
+    (t) => streamed.push(t),
+    signal,
   );
-  assert.deepEqual(await provider.listModels(), ['qwen3:8b', 'old:7b']);
+  assert.equal(streamed.join(''), 'Let me check.');
+  assert.equal(response.stop, 'tools');
+
+  const post = sent.find((s) => s.path === '/v1/assistant/messages')!;
+  assert.equal(post.method, 'POST');
+  assert.equal(post.headers.get('authorization'), 'Bearer tok_1');
+  assert.equal(post.headers.get('x-api-key'), null);
+  // The server's model and cap, never more than the app asked for.
+  assert.equal(post.body.model, 'claude-sonnet-5-5');
+  assert.equal(post.body.max_tokens, 800);
+  // Only what the server accepts.
+  assert.deepEqual(Object.keys(post.body).sort(), [
+    'max_tokens',
+    'messages',
+    'model',
+    'stream',
+    'system',
+    'tools',
+  ]);
+  for (const tool of post.body.tools) {
+    assert.ok(
+      Object.keys(tool).every((k) =>
+        ['name', 'description', 'input_schema', 'cache_control'].includes(k),
+      ),
+    );
+  }
+
+  // The model and cap are asked for once per provider (one reply).
+  await provider.complete({ ...request, model: '' }, () => {}, signal);
+  assert.equal(sent.filter((s) => s.path === '/v1/assistant').length, 1);
+  assert.deepEqual(await provider.listModels(), ['claude-sonnet-5-5']);
 });
 
-test('Ollama: no models, or none that can use tools, say what to do', async () => {
-  const none = local.ollama(
-    'http://ollama.test',
-    fakeOllama({ '/api/tags': () => json({ models: [] }) }),
-  );
-  await assert.rejects(none.listModels(), /no models yet.*ollama pull/);
-  const noTools = local.ollama(
-    'http://ollama.test',
-    fakeOllama({
-      '/api/tags': () => json({ models: [{ name: 'deepseek-r1:latest' }] }),
-      '/api/show': () => json({ capabilities: ['completion'] }),
-    }),
-  );
-  await assert.rejects(noTools.listModels(), /can use tools/);
+test('PawpawBI: this month’s allowance, always fresh', async () => {
+  const { sent, fakeFetch } = fakeServer(undefined, {
+    models: ['claude-sonnet-5-5'],
+    maxTokens: 800,
+    usage: { share: 1.2, resetsAt: '2026-12-01T00:00:00Z' },
+  });
+  const provider = free.pawpaw('https://api.test/v1', 'tok_1', fakeFetch);
+  assert.deepEqual(await provider.usage(), {
+    share: 1,
+    resetsAt: '2026-12-01T00:00:00Z',
+  });
+  await provider.usage();
+  assert.equal(sent.length, 2);
 });
 
-test('Ollama: not running, a missing model and stopping are each handled', async () => {
-  const refused = (async () => {
+test('PawpawBI: refusals say what the server says, and a rejected sign-in signs out', async () => {
+  const signal = new AbortController().signal;
+  const refusing = (status: number, code: string, message: string) =>
+    free.pawpaw(
+      'https://api.test/v1',
+      'tok_1',
+      fakeServer(() => json({ error: { code, message } }, status)).fakeFetch,
+    );
+
+  const used = refusing(
+    429,
+    'allowance_used',
+    'You’ve used this month’s free assistant. It starts again on 1 December.',
+  );
+  await assert.rejects(
+    used.complete(request, () => {}, signal),
+    (e: Error) =>
+      e instanceof ProviderError &&
+      /starts again on 1 December/.test(e.message),
+  );
+  const unverified = refusing(
+    403,
+    'email_not_verified',
+    'Verify your email address first.',
+  );
+  await assert.rejects(
+    unverified.complete(request, () => {}, signal),
+    /Verify your email address first/,
+  );
+  const signedOut = refusing(401, 'unauthorized', 'Please sign in again.');
+  await assert.rejects(
+    signedOut.complete(request, () => {}, signal),
+    (e: Error) => e instanceof SignedOutError,
+  );
+
+  // Offline, and stopped.
+  const offline = free.pawpaw('https://api.test/v1', 'tok_1', (async () => {
     throw new TypeError('fetch failed');
-  }) as typeof fetch;
+  }) as typeof fetch);
   await assert.rejects(
-    local.ollama('http://ollama.test', refused).listModels(),
-    /isn't running/,
+    offline.complete(request, () => {}, signal),
+    /Couldn’t reach PawpawBI/,
   );
+  const controller = new AbortController();
+  controller.abort();
+  const aborted = free.pawpaw('https://api.test/v1', 'tok_1', (async (
+    _url: string,
+    init?: RequestInit,
+  ) => {
+    init?.signal?.throwIfAborted();
+    return json({});
+  }) as typeof fetch);
+  await assert.rejects(
+    aborted.complete(request, () => {}, controller.signal),
+    (e: Error) => e.name === 'AbortError',
+  );
+});
 
-  const missing = local.ollama(
-    'http://ollama.test',
-    fakeOllama({
-      '/api/show': () => json({ error: "model 'nope' not found" }, 404),
-      '/api/chat': () => json({ error: "model 'nope' not found" }, 404),
-    }),
+test('PawpawBI: a problem after the reply started arrives as an error event', async () => {
+  const { fakeFetch } = fakeServer(
+    () =>
+      new Response(
+        'event: error\ndata: {"type":"error","error":{"type":"api_error","message":"The connection to Claude was lost. Try again."}}\n\n',
+      ),
   );
+  const provider = free.pawpaw('https://api.test/v1', 'tok_1', fakeFetch);
   await assert.rejects(
-    missing.complete(
-      { ...request, model: 'nope' },
-      () => {},
-      new AbortController().signal,
-    ),
-    /doesn't have the model nope.*ollama pull nope/,
-  );
-
-  const aborted = (async () => {
-    throw Object.assign(new Error('aborted'), { name: 'AbortError' });
-  }) as typeof fetch;
-  await assert.rejects(
-    local
-      .ollama('http://ollama.test', aborted)
-      .complete(request, () => {}, new AbortController().signal),
-    (error: Error) => error.name === 'AbortError',
+    provider.complete(request, () => {}, new AbortController().signal),
+    /The assistant stopped with an error: The connection to Claude was lost/,
   );
 });

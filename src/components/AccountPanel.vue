@@ -1,12 +1,27 @@
 <script setup lang="ts">
 // Signing in to PawpawBI with an email and password, or who's signed in. Used where publishing
-// needs an account. Verifying the email address happens in the web console, through the link
+// and the free assistant need an account. Verifying the email address happens in the web console, through the link
 // emailed at sign-up; until then this says so, and checks again when the window gets focus.
 import { onMounted, onUnmounted, ref } from 'vue';
 import { errorMessage } from '../errors';
 import type { AccountState } from '../shared/types';
 
+const props = withDefaults(
+  defineProps<{ purpose?: 'publish' | 'assistant' }>(),
+  { purpose: 'publish' },
+);
 const emit = defineEmits<{ changed: [state: AccountState] }>();
+
+const INTRO = {
+  publish: {
+    'sign-in': 'Sign in to your PawpawBI account to publish.',
+    'sign-up': 'Create a free PawpawBI account to publish your reports.',
+  },
+  assistant: {
+    'sign-in': 'Sign in to your PawpawBI account to use the free assistant.',
+    'sign-up': 'Create a free PawpawBI account to use the free assistant.',
+  },
+};
 
 const state = ref<AccountState | null>(null);
 const mode = ref<'sign-in' | 'sign-up'>('sign-in');
@@ -69,7 +84,11 @@ const signOut = () => run('sign-out', () => window.api.account.signOut());
     <p v-if="!state" class="muted">Checking your account…</p>
 
     <p v-else-if="!state.available" class="box-notice muted-box">
-      Publishing to PawpawBI isn't available in this version yet.
+      {{
+        props.purpose === 'publish'
+          ? "Publishing to PawpawBI isn't available in this version yet."
+          : "The free assistant isn't available in this version yet."
+      }}
     </p>
 
     <div v-else-if="state.email" class="signed-in">
@@ -94,13 +113,7 @@ const signOut = () => run('sign-out', () => window.api.account.signOut());
     </div>
 
     <div v-else class="sign-in">
-      <p class="intro">
-        {{
-          mode === 'sign-in'
-            ? 'Sign in to your PawpawBI account to publish.'
-            : 'Create a free PawpawBI account to publish your reports.'
-        }}
-      </p>
+      <p class="intro">{{ INTRO[props.purpose][mode] }}</p>
       <form class="form" @submit.prevent="submit">
         <label>
           Email

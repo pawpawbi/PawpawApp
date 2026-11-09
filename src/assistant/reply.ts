@@ -20,7 +20,6 @@ import type {
   ApprovalAnswer,
   AssistantChange,
   AssistantEnd,
-  AssistantProvider,
   ChatMessage,
   TableSchema,
   WorkflowStage,
@@ -74,24 +73,14 @@ async function snapshot(stage: WorkflowStage) {
   });
 }
 
-/**
- * The tools offered: everything for Claude and ChatGPT. Small local models (Ollama) get the
- * read tools and only the change tools for the step the user is on, so they have fewer to
- * choose from.
- */
-export function toolsFor(
-  provider: AssistantProvider,
-  stage: WorkflowStage,
-  ctx: ToolContext,
-): ToolSpec[] {
-  const byStage: Record<WorkflowStage, ToolSpec[]> = {
-    data: sourceTools(ctx),
-    model: modelTools(ctx),
-    visuals: reportTools(ctx),
-  };
-  return provider === 'ollama'
-    ? [...READ_TOOLS, ...byStage[stage]]
-    : [...READ_TOOLS, ...Object.values(byStage).flat()];
+/** The tools offered: reading the project, and changing each step of it. */
+export function toolsFor(ctx: ToolContext): ToolSpec[] {
+  return [
+    ...READ_TOOLS,
+    ...sourceTools(ctx),
+    ...modelTools(ctx),
+    ...reportTools(ctx),
+  ];
 }
 
 /** A tool's name as a fallback label, e.g. "Add source" for add_source. */
@@ -128,8 +117,11 @@ export async function reply(
   try {
     const settings = await getSettings();
     const provider = await providerFor(settings.provider);
+    // PawpawBI chooses the free assistant's model (pawpaw.ts).
     const model = settings.models[settings.provider];
-    if (!model) throw new Error('Choose a model in Assistant settings first.');
+    if (!model && settings.provider !== 'pawpaw') {
+      throw new Error('Choose a model in Assistant settings first.');
+    }
     const emit = emitter(event);
 
     return await tracked('The assistant is replying', async () => {
@@ -209,7 +201,7 @@ export async function reply(
           model,
           system: SYSTEM_PROMPT,
           context: await snapshot(chat.stage),
-          tools: toolsFor(settings.provider, chat.stage, ctx),
+          tools: toolsFor(ctx),
           approve,
           history: toTurns([...chat.messages, ...added]),
           signal: controller.signal,

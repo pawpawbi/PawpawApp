@@ -3,7 +3,8 @@
 // members by invitation, report visibility) to try who may do what, and verifying the email
 // address. The "emails" (verification links and invitations) are kept in `emails` and printed when
 // run on its own; there's no console to open their links. Not the web console's cookie, password
-// resets, sessions or the assistant. It gives out and renews passes for reports, and GET
+// resets or sessions. Its assistant gives the same short reply every time, within a pretend
+// allowance of ASSISTANT_REPLIES replies, and needs a verified address. It gives out and renews passes for reports, and GET
 // /reports/<id> takes them, but its viewer doesn't: there, only reports open to anyone with the
 // link show. It also stands in for S3: it signs its own upload and download URLs
 // (/s3/...), checks the signed headers and checksum on uploads, makes a version current on
@@ -39,6 +40,45 @@ const CODES = {
   409: 'conflict',
 };
 const newId = () => randomBytes(9).toString('base64url');
+
+/** The assistant's one model, and how many replies an account gets (a month, for the real one). */
+const ASSISTANT_MODEL = 'claude-sonnet-5-5';
+const ASSISTANT_REPLIES = 20;
+const ASSISTANT_MAX_TOKENS = 8192;
+
+/** The stand-in assistant's reply, as Anthropic's event stream. */
+function assistantReply() {
+  const text =
+    "This is the stand-in server's assistant. It gives this reply to every message.";
+  const event = (type, data) =>
+    `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
+  return [
+    event('message_start', {
+      message: {
+        id: `msg_${newId()}`,
+        type: 'message',
+        role: 'assistant',
+        model: ASSISTANT_MODEL,
+        content: [],
+        usage: { input_tokens: 10, output_tokens: 1 },
+      },
+    }),
+    event('content_block_start', {
+      index: 0,
+      content_block: { type: 'text', text: '' },
+    }),
+    event('content_block_delta', {
+      index: 0,
+      delta: { type: 'text_delta', text },
+    }),
+    event('content_block_stop', { index: 0 }),
+    event('message_delta', {
+      delta: { stop_reason: 'end_turn' },
+      usage: { output_tokens: 20 },
+    }),
+    event('message_stop', {}),
+  ].join('');
+}
 /** A report's ID, which is its host's first label: lowercase letters and digits. */
 const newReportId = () => {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -70,6 +110,7 @@ export function startStubServer(port = 0, { onEmail = () => {} } = {}) {
   const secret = randomBytes(32);
   const users = new Map(); // email -> { id, salt, hash, verified }
   const tokens = new Map(); // token -> email
+  const assistantReplies = new Map(); // email -> replies so far
   const links = new Map(); // email verification token -> email
   const invitations = new Map(); // invitation token -> { id, orgId, email, role, invitedBy, createdAt }
   const passes = new Map(); // pass -> { reportId, email, session (its token), expires, renewableUntil }
@@ -459,6 +500,58 @@ export function startStubServer(port = 0, { onEmail = () => {} } = {}) {
       if (req.method === 'POST' && route === '/auth/send-verification') {
         if (!users.get(email).verified) sendLink(email);
         return noContent();
+      }
+
+      // --- The assistant ---
+      const nextMonth = () => {
+        const now = new Date();
+        return new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+        ).toISOString();
+      };
+      if (req.method === 'GET' && route === '/assistant') {
+        const used = assistantReplies.get(email) ?? 0;
+        return send(200, {
+          models: [ASSISTANT_MODEL],
+          maxTokens: ASSISTANT_MAX_TOKENS,
+          usage: {
+            share: Math.min(1, used / ASSISTANT_REPLIES),
+            resetsAt: nextMonth(),
+          },
+        });
+      }
+      if (req.method === 'POST' && route === '/assistant/messages') {
+        if (!users.get(email).verified) {
+          return send(403, {
+            error: {
+              code: 'email_not_verified',
+              message:
+                'Verify your email address first: open the link we emailed you.',
+            },
+          });
+        }
+        const request = await json();
+        if (
+          request.model !== ASSISTANT_MODEL ||
+          request.stream !== true ||
+          !(request.max_tokens <= ASSISTANT_MAX_TOKENS) ||
+          !Array.isArray(request.messages)
+        ) {
+          return fail(400, 'The request needs the model, stream and messages.');
+        }
+        const used = assistantReplies.get(email) ?? 0;
+        if (used >= ASSISTANT_REPLIES) {
+          return send(429, {
+            error: {
+              code: 'allowance_used',
+              message: "You've used this month's free assistant.",
+            },
+          });
+        }
+        assistantReplies.set(email, used + 1);
+        return send(200, Buffer.from(assistantReply()), {
+          'Content-Type': 'text/event-stream',
+        });
       }
 
       // --- Organisations and members ---

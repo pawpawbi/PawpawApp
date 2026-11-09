@@ -57,13 +57,18 @@ const shown = computed(() =>
   messages.value.length ? messages.value : [intro],
 );
 
-// The chosen provider is set up: a key saved, or (for Ollama) a model chosen.
+// The chosen provider is set up: a key saved, or (for the free assistant) signed in to PawpawBI
+// with a verified email address.
 const ready = computed(() => !!settings.value?.ready);
-const modelLabel = computed(() =>
-  settings.value && ready.value
-    ? `${PROVIDERS[settings.value.provider].product} · ${settings.value.models[settings.value.provider]}`
-    : '',
-);
+// The free assistant's model isn't shown: PawpawBI chooses it.
+const modelLabel = computed(() => {
+  const s = settings.value;
+  if (!s || !ready.value) return '';
+  const product = PROVIDERS[s.provider].product;
+  return s.provider === 'pawpaw'
+    ? product
+    : `${product} · ${s.models[s.provider]}`;
+});
 const canSend = computed(
   () =>
     draft.value.trim() !== '' &&
@@ -79,7 +84,18 @@ async function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
 
 let stopListening: (() => void) | null = null;
 
+/**
+ * Back from verifying the email address in the browser: check again (reading the account asks
+ * PawpawBI whether it's verified now).
+ */
+async function recheckReady() {
+  if (ready.value || loading.value) return;
+  await window.api.account.get();
+  settings.value = await window.api.assistant.getSettings();
+}
+
 onMounted(async () => {
+  window.addEventListener('focus', recheckReady);
   stopListening = window.api.assistant.onEvent((event) => {
     if (event.type === 'text') {
       liveText.value += event.text;
@@ -132,7 +148,10 @@ onMounted(async () => {
   await scrollToBottom('auto');
 });
 
-onBeforeUnmount(() => stopListening?.());
+onBeforeUnmount(() => {
+  stopListening?.();
+  window.removeEventListener('focus', recheckReady);
+});
 
 const END_NOTES: Partial<Record<AssistantEnd, string>> = {
   steps:
@@ -248,7 +267,8 @@ function onKeydown(event: KeyboardEvent) {
 
     <div v-if="!loading && !ready" class="setup">
       <p>
-        Get started by setting up an assistant from Anthropic, OpenAI or Ollama.
+        The assistant is free with a PawpawBI account. Sign up or sign in to
+        start, or use your own Claude or ChatGPT key.
       </p>
       <button class="btn-primary" @click="showSettings = true">
         Set up the assistant
