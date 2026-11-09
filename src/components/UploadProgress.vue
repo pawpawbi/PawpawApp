@@ -1,12 +1,19 @@
 <script setup lang="ts">
 // A progress bar for an upload to PawpawBI, following the main process's publish:progress
-// events (src/published.ts). Shows nothing until an upload starts.
+// events (src/published.ts), or the progress it's `given` (a background refresh's). Shows nothing
+// until an upload starts.
 import { computed, onBeforeUnmount, ref } from 'vue';
 import type { PublishProgress } from '../shared/types';
 
-const progress = ref<PublishProgress | null>(null);
-const stop = window.api.publish.onProgress((p) => (progress.value = p));
+const props = defineProps<{ given?: PublishProgress | null }>();
+
+const published = ref<PublishProgress | null>(null);
+const stop = window.api.publish.onProgress((p) => (published.value = p));
 onBeforeUnmount(stop);
+
+const progress = computed(() =>
+  props.given === undefined ? published.value : props.given,
+);
 
 const size = (bytes: number) =>
   bytes < 1024 * 1024

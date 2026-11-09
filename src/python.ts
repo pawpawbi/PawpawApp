@@ -4,6 +4,7 @@ import { app, ipcMain } from 'electron';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
 import readline from 'node:readline';
+import { backgroundProject } from './project-context';
 import type { PythonInfo } from './shared/types';
 
 export const pythonRoot = app.isPackaged
@@ -109,14 +110,26 @@ class PythonSidecar {
 
 const sidecar = new PythonSidecar();
 
-/** Stops the sidecar, interrupting whatever it's doing. It restarts on the next call. */
+/**
+ * A background refresh's own sidecar (project-context.ts), so its queries never wait behind the
+ * window's, and stopping one never interrupts the other. Stopped after each refresh.
+ */
+const backgroundSidecar = new PythonSidecar();
+
+/** Stops the window's sidecar, interrupting whatever it's doing. It restarts on the next call. */
 export const stopPython = () => sidecar.stop();
 
-/** Calls a method in python/sidecar/main.py. */
+/** Stops the background refresh's sidecar (when it's done, or to stop it). */
+export const stopBackgroundPython = () => backgroundSidecar.stop();
+
+/** Calls a method in python/sidecar/main.py, in the background refresh's sidecar inside one. */
 export const callPython = <T>(method: string, params?: unknown) =>
-  sidecar.call<T>(method, params);
+  (backgroundProject() ? backgroundSidecar : sidecar).call<T>(method, params);
 
 export function registerPythonHandlers() {
   ipcMain.handle('python:info', () => sidecar.call<PythonInfo>('info'));
-  app.on('will-quit', () => sidecar.stop());
+  app.on('will-quit', () => {
+    sidecar.stop();
+    backgroundSidecar.stop();
+  });
 }

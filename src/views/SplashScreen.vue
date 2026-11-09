@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { errorMessage } from '../errors';
-import type { OpenResult, Project, RecentProject } from '../shared/types';
+import type {
+  OpenResult,
+  Project,
+  RecentProject,
+  RefreshStatus,
+} from '../shared/types';
 import { timeAgo } from '../time';
 
 const emit = defineEmits<{ open: [project: Project]; published: [] }>();
@@ -10,8 +15,20 @@ const version = ref('');
 const recents = ref<RecentProject[]>([]);
 const busy = ref(false);
 const error = ref('');
+/** A published project refreshing in the background (by hand or on schedule), if any. */
+const refreshing = ref<RefreshStatus | null>(null);
+
+const unsubscribe = window.api.publish.onRefreshStatus(
+  (status) => (refreshing.value = status),
+);
+onBeforeUnmount(unsubscribe);
 
 onMounted(async () => {
+  window.api.publish
+    .refreshStatus()
+    .then((status) => (refreshing.value = status))
+    .catch(() => {});
+
   // Starts the Python sidecar now, so the first project opens without waiting for it.
   window.api.python
     .info()
@@ -98,7 +115,10 @@ const openRecent = (recent: RecentProject) =>
           </span>
           <span class="action-text">
             <strong>Published projects</strong>
-            <small>Refresh data on published reports</small>
+            <small v-if="refreshing?.projectPath"
+              >Refreshing “{{ refreshing.projectName }}”…</small
+            >
+            <small v-else>Refresh data, now or on a schedule</small>
           </span>
         </button>
       </div>

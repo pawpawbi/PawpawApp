@@ -13,9 +13,10 @@ ordinary files and folders, defined in [docs/pawpaw-file-format.md](docs/pawpaw-
 Early development. Working:
 
 - **Projects:** create, open, save, crash recovery, rename and delete (Edit project).
-- **Data:** 47 data connectors (the file connectors and SQLite are tested, the rest aren't yet; setup notes for
-  each are in [docs/guides/data.md](docs/guides/data.md)). Loads show how long they've been running and can
-  be stopped until their data has arrived.
+- **Data:** 47 data connectors. 19 are tested with real data so far (files, most databases, S3-compatible
+  storage, SFTP, Kafka, IMAP, Matomo, Strapi and any REST API); the rest aren't yet. Setup notes for each
+  are in [docs/guides/data.md](docs/guides/data.md). Loads show how long they've been running and can be
+  stopped until their data has arrived.
 - **Model:** the Model data canvas with dependency lines, SQL transforms of loaded tables,
   transformed tables built from other tables, and refreshing everything in dependency order.
 - **Report:** a static website of charts (bars, lines, headline numbers, tables) that every new
@@ -24,7 +25,8 @@ Early development. Working:
 - **Publish:** to PawpawBI (an account with an email and password; the report is hosted at a
   link, in your personal workspace or an organisation you choose, open to anyone with the link
   or only to its members, who sign in to see it; its data can be refreshed later from the start screen's Published
-  projects, and organisations, members and who can open each report are managed in the
+  projects, by hand or on a weekly or monthly schedule, in the background while PawpawBI is open or in the
+  system tray; organisations, members and who can open each report are managed in the
   PawpawBI web console), as a single HTML file to send by email (it opens in any web browser,
   offline), or to a folder for hosting anywhere, e.g. S3. The PawpawBI server's API is
   [docs/pawpaw-server-api.md](docs/pawpaw-server-api.md); the server itself is a separate project.

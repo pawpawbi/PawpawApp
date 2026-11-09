@@ -16,6 +16,7 @@ import readline from 'node:readline';
 import { CancelledError, work } from './background';
 import { deleteSecrets, readSecrets, writeSecrets } from './credentials';
 import { readJson, removePath, writeJson } from './fs-json';
+import { backgroundProject } from './project-context';
 import { markProjectChanged, openProject, tracked } from './projects';
 import { refreshDatasets } from './report';
 import {
@@ -378,6 +379,9 @@ const RECEIVED = 'Data loaded, now processing…';
 const processing = new Set<string>();
 
 function sendProgress(progress: DataProgress) {
+  // A background refresh reports to its own status, not the window's data screens.
+  const background = backgroundProject();
+  if (background) return background.onMessage(progress.message);
   if (progress.received) processing.add(progress.sourceId);
   else processing.delete(progress.sourceId);
   for (const win of BrowserWindow.getAllWindows())

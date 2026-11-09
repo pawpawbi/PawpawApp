@@ -407,6 +407,31 @@ test('published records from project files are checked', () => {
     other,
     republished,
   ]);
+
+  // A refresh schedule is kept, checked, and carried over when the entry is replaced.
+  const schedule = {
+    repeat: 'weekly' as const,
+    days: [1, 4],
+    times: ['06:00'],
+  };
+  const scheduled = {
+    ...entry,
+    schedule,
+    scheduleDoneUntil: '2026-11-09T06:00:00.000Z',
+  };
+  assert.deepEqual(cleanList({ projects: [scheduled] }), [scheduled]);
+  assert.deepEqual(
+    cleanList({
+      projects: [{ ...scheduled, schedule: { ...schedule, times: ['25:00'] } }],
+    }),
+    [entry],
+  );
+  assert.deepEqual(withEntry([scheduled], moved), [
+    { ...moved, schedule, scheduleDoneUntil: scheduled.scheduleDoneUntil },
+  ]);
+  assert.deepEqual(withEntry([scheduled], { ...entry, lastError: 'x' }), [
+    { ...scheduled, lastError: 'x' },
+  ]);
 });
 
 /** A signed-up account: its client and ID. */

@@ -22,9 +22,10 @@ How data sources work, the Add data screen, and notes on setting up each connect
   minute.
 - **On another computer**, a project keeps its data, but loading asks for passwords again, and
   file paths may need choosing again.
-- Only the file connectors and SQLite have been tested with real data so far. If another
-  connector fails, say what the error says and suggest checking its settings and its docs
-  (**Docs ↗** in its form).
+- Not every connector has been tested with real data yet. Tested: the file connectors, SQLite and
+  the other databases except Snowflake, BigQuery, Redshift and Databricks, S3-compatible storage,
+  SFTP, Kafka, the email inbox, Matomo, Strapi and the REST API. If another one fails, say what
+  the error says and suggest checking its settings and its docs (**Docs ↗** in its form).
 
 ## The Add data screen
 

@@ -336,6 +336,35 @@ export interface PublishedProject extends PublishedReport {
   projectPath: string;
   /** Why the last refresh failed, or which sources couldn't be loaded. */
   lastError?: string;
+  /** When this computer refreshes it by itself, if it does. */
+  schedule?: RefreshSchedule;
+  /**
+   * Scheduled times up to here have been run (or replaced by a refresh by hand); a later one
+   * that has passed is due. Set to the time a schedule is saved, so earlier times don't count.
+   */
+  scheduleDoneUntil?: string;
+}
+
+/**
+ * When a published project refreshes by itself, in this computer's local time: on chosen days
+ * of the week (0 Sunday to 6 Saturday), or of the month (1 to 31, or -1 the last day to -10 the
+ * tenth from last; a day past the end of a short month means its last day), at each of `times`
+ * ("HH:MM", 24-hour). Logic: src/shared/schedule.ts.
+ */
+export interface RefreshSchedule {
+  repeat: 'weekly' | 'monthly';
+  days: number[];
+  times: string[];
+}
+
+/** The refresh running on this computer, if any (by hand or on schedule). */
+export interface RefreshStatus {
+  /** The project being refreshed, or null when none is. */
+  projectPath: string | null;
+  projectName: string;
+  scheduled: boolean;
+  message: string;
+  upload: PublishProgress | null;
 }
 
 export interface AccountState {
@@ -382,10 +411,23 @@ export interface PublishApi {
   /** Takes a project off this computer's list (the report stays on PawpawBI). */
   forget: (projectPath: string) => Promise<PublishedProject[]>;
   /**
-   * Opens a published project in the background, loads every data source again, uploads the
-   * report's new data and saves the project. Progress comes as data progress for ALL_SOURCES.
+   * Refreshes a published project in the background (a copy of it, apart from any open
+   * project): loads every data source again, uploads the report's new data and saves the
+   * project file. Progress comes through onRefreshStatus.
    */
   refresh: (projectPath: string) => Promise<PublishedProject>;
+  /** The refresh running now, if any. */
+  refreshStatus: () => Promise<RefreshStatus>;
+  /** Called as a refresh (by hand or on schedule) starts, goes and ends. */
+  onRefreshStatus: (callback: (status: RefreshStatus) => void) => () => void;
+  /** Sets (or with null, removes) a published project's refresh schedule. Returns the list. */
+  setSchedule: (
+    projectPath: string,
+    schedule: RefreshSchedule | null,
+  ) => Promise<PublishedProject[]>;
+  /** Whether PawpawBI starts in the system tray when the user signs in to Windows. */
+  getStartAtLogin: () => Promise<boolean>;
+  setStartAtLogin: (on: boolean) => Promise<boolean>;
   /** Adds published projects to the list from .pawpaw files the user picks. */
   addFiles: () => Promise<PublishedProject[]>;
   /** Called as an upload to PawpawBI goes. Returns an unsubscribe function. */

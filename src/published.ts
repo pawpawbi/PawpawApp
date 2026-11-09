@@ -1,7 +1,8 @@
 // Publishing reports to PawpawBI and keeping their data fresh. A project records its published
 // report in published.json; this computer keeps a list of every published project
-// (published-reports.json in userData) for the Published projects screen. The list can always
-// be rebuilt from the project files. Server API: docs/pawpaw-server-api.md
+// (published-reports.json in userData) for the Published projects screen, with their refresh
+// schedules (run by scheduled-refresh.ts). The list can always be rebuilt from the project
+// files, less the schedules. Server API: docs/pawpaw-server-api.md
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -21,17 +22,23 @@ import {
   type PawpawServer,
   type ServerReport,
 } from './pawpaw-server';
+import { CancelledError, work } from './background';
 import {
-  closeProjectQuietly,
-  hasOpenProject,
+  backgroundProject,
+  withBackgroundProject,
+  type BackgroundProject,
+} from './project-context';
+import {
+  hasRecoverableChanges,
   markProjectChanged,
   onProjectOpened,
+  openBackgroundWorkspace,
   openProject,
-  openProjectInBackground,
   readRecents,
-  saveProject,
+  saveBackgroundWorkspace,
   tracked,
 } from './projects';
+import { stopBackgroundPython } from './python';
 import {
   cleanList,
   cleanPublished,
@@ -40,7 +47,7 @@ import {
 } from './published-files';
 import { refreshDatasets } from './report';
 import { exportSite, hasSite, readReport, SITE_TYPES } from './report-site';
-import { parseManifest } from './workspace';
+import { parseManifest, removeWorkspace, type Workspace } from './workspace';
 import type {
   PublishedOrg,
   PublishedProject,
@@ -78,6 +85,32 @@ const readList = () => readJson(listPath(), cleanList);
 const writeList = (list: PublishedProject[]) =>
   writeJson(listPath(), { projects: list });
 
+// Refreshes, schedules and the screen all change the list, so changes are made one at a time
+// on the latest copy: none undoes another's.
+let listChanges: Promise<unknown> = Promise.resolve();
+
+/** Changes the list and saves it. Returns the new list. */
+export function updateList(
+  change: (list: PublishedProject[]) => PublishedProject[],
+): Promise<PublishedProject[]> {
+  const next = listChanges.then(async () => {
+    const changed = change(await list());
+    await writeList(changed);
+    return changed;
+  });
+  listChanges = next.catch(() => {});
+  return next;
+}
+
+/** Changes the entry for a project file, if it's listed. */
+export const updateEntry = (
+  projectPath: string,
+  change: (entry: PublishedProject) => PublishedProject,
+) =>
+  updateList((entries) =>
+    entries.map((e) => (e.projectPath === projectPath ? change(e) : e)),
+  );
+
 /** Adds or updates the open project's entry in the list. */
 async function listOpenProject(report: PublishedReport, lastError?: string) {
   const project = openProject();
@@ -88,8 +121,8 @@ async function listOpenProject(report: PublishedReport, lastError?: string) {
     projectPath: project.filePath,
     ...(lastError ? { lastError } : {}),
   };
-  await writeList(withEntry(await readList(), entry));
-  return entry;
+  const entries = await updateList((entries) => withEntry(entries, entry));
+  return entries.find((e) => e.projectPath === entry.projectPath) ?? entry;
 }
 
 /** A published project in a .pawpaw file, read without opening it; null if it isn't one. */
@@ -112,7 +145,7 @@ async function entryFromFile(
 }
 
 /** The list, rebuilt from the recent projects' files if it's been lost. */
-async function list(): Promise<PublishedProject[]> {
+export async function list(): Promise<PublishedProject[]> {
   const exists = await fs
     .access(listPath())
     .then(() => true)
@@ -134,15 +167,15 @@ async function addFiles(win: BrowserWindow): Promise<PublishedProject[]> {
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'PawpawBI project', extensions: ['pawpaw'] }],
   });
-  let entries = await list();
-  if (canceled) return entries;
+  if (canceled) return list();
+  const found: PublishedProject[] = [];
   const notPublished: string[] = [];
   for (const filePath of filePaths) {
     const entry = await entryFromFile(filePath).catch(() => null);
-    if (entry) entries = withEntry(entries, entry);
+    if (entry) found.push(entry);
     else notPublished.push(path.basename(filePath));
   }
-  await writeList(entries);
+  const entries = await updateList((list) => found.reduce(withEntry, list));
   if (notPublished.length) {
     throw new Error(
       `${notPublished.join(', ')} ${notPublished.length === 1 ? "hasn't" : "haven't"} been published to PawpawBI, so ${notPublished.length === 1 ? "it wasn't" : "they weren't"} added.`,
@@ -199,8 +232,10 @@ const packData = (filesDir: string) =>
     /^data\/[^/]+\.json$/.test(file),
   );
 
-/** Tells every window how the upload is going (a progress bar). */
+/** Tells every window how the upload is going (a progress bar), or a background refresh. */
 function sendProgress(progress: PublishProgress) {
+  const background = backgroundProject();
+  if (background) return background.onUpload(progress);
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send('publish:progress', progress);
   }
@@ -330,25 +365,31 @@ async function publishToPawpawBI(
 
 /** Takes a project off this computer's list. Opening it again lists it again. */
 async function forget(projectPath: string): Promise<PublishedProject[]> {
-  const entries = (await list()).filter((e) => e.projectPath !== projectPath);
-  await writeList(entries);
-  return entries;
+  return updateList((entries) =>
+    entries.filter((e) => e.projectPath !== projectPath),
+  );
 }
 
 /**
- * Refreshes a published project from the start screen: opens it in the background, loads every
- * data source again (rebuilding tables and datasets), uploads the report's new data, saves the
- * project and closes it.
+ * Refreshes a published project in the background, apart from any project open in the window
+ * (project-context.ts): opens a copy of it, loads every data source again (rebuilding tables
+ * and datasets), uploads the report's new data, saves the project file and removes the copy.
+ * Runs one at a time (scheduled-refresh.ts); the caller makes sure the file isn't open in the
+ * window. Whatever the outcome, scheduled times up to its start count as done.
  */
-async function refresh(projectPath: string): Promise<PublishedProject> {
-  if (hasOpenProject()) throw new Error('Close the open project first.');
+export async function refreshProject(
+  projectPath: string,
+  status: Omit<BackgroundProject, 'workspace'>,
+): Promise<PublishedProject> {
+  const startedAt = new Date().toISOString();
   const entry = (await list()).find((e) => e.projectPath === projectPath);
   if (!entry) throw new Error('That project isn’t in the published list.');
-  const remember = async (lastError: string) => {
-    const failed = { ...entry, lastError };
-    await writeList(withEntry(await readList(), failed));
-    return failed;
-  };
+  const remember = (lastError: string) =>
+    updateEntry(projectPath, (e) => ({
+      ...e,
+      lastError,
+      ...(e.schedule ? { scheduleDoneUntil: startedAt } : {}),
+    }));
   try {
     await fs.access(projectPath);
   } catch {
@@ -360,54 +401,77 @@ async function refresh(projectPath: string): Promise<PublishedProject> {
     );
   }
 
-  const { server } = await signedInServer();
-  await openProjectInBackground(projectPath);
+  let workspace: Workspace | null = null;
   try {
-    const { filesDir } = openProject();
-    const report = await readPublished(filesDir);
-    if (!report) throw new Error('This project isn’t published any more.');
-    const { updated, problems } = await tracked(
-      'Refreshing the published report',
+    if (await hasRecoverableChanges(projectPath, entry.projectId)) {
+      throw new Error(
+        'This project has unsaved changes from when PawpawBI closed unexpectedly. Open it to recover or discard them first.',
+      );
+    }
+    const { server } = await signedInServer();
+    workspace = await openBackgroundWorkspace(projectPath);
+    const ws = workspace;
+    const refreshed = await withBackgroundProject(
+      { ...status, workspace: ws },
       async () => {
-        const result = await refreshAll();
-        const hosted = await uploadVersion(
-          server,
-          await packData(filesDir),
-          (files) => server.updateReport(report.reportId, 'data', files),
-        ).catch((error) => {
-          if (isGone(error)) {
-            throw new Error(
-              `${GONE} Open the project and publish it again as a new report, or forget it here.`,
-            );
-          }
-          return forgetIfSignedOut(error);
-        });
-        const updated = {
-          ...report,
-          visibility: hosted.visibility ?? report.visibility,
-          refreshedAt: hosted.refreshedAt,
-        };
-        await writePublished(updated);
-        const problems = [
-          ...result.failedSources.map((s) => `${s.name}: ${s.error}`),
-          ...result.failedTables.map((t) => `${t.name}: ${t.error}`),
-        ];
-        return { updated, problems };
+        const report = await readPublished(ws.filesDir);
+        if (!report) throw new Error('This project isn’t published any more.');
+        const { updated, problems } = await tracked(
+          'Refreshing the published report',
+          async () => {
+            const result = await refreshAll();
+            work.checkCancelled();
+            const hosted = await uploadVersion(
+              server,
+              await packData(ws.filesDir),
+              (files) => server.updateReport(report.reportId, 'data', files),
+            ).catch((error) => {
+              if (isGone(error)) {
+                throw new Error(
+                  `${GONE} Open the project and publish it again as a new report, or forget it here.`,
+                );
+              }
+              return forgetIfSignedOut(error);
+            });
+            const updated = {
+              ...report,
+              visibility: hosted.visibility ?? report.visibility,
+              refreshedAt: hosted.refreshedAt,
+            };
+            await writePublished(updated);
+            const problems = [
+              ...result.failedSources.map((s) => `${s.name}: ${s.error}`),
+              ...result.failedTables.map((t) => `${t.name}: ${t.error}`),
+            ];
+            return { updated, problems };
+          },
+        );
+        status.onMessage('Saving the project…');
+        await saveBackgroundWorkspace(ws);
+        return listOpenProject(
+          updated,
+          problems.length
+            ? `Refreshed, with problems. ${problems.join(' ')}`
+            : undefined,
+        );
       },
     );
-    // After the task: saving waits for the project's background work to finish.
-    await saveProject();
-    return await listOpenProject(
-      updated,
-      problems.length
-        ? `Refreshed, with problems. ${problems.join(' ')}`
-        : undefined,
-    );
+    if (!refreshed.schedule) return refreshed;
+    const entries = await updateEntry(projectPath, (e) => ({
+      ...e,
+      scheduleDoneUntil: startedAt,
+    }));
+    return entries.find((e) => e.projectPath === projectPath) ?? refreshed;
   } catch (error) {
-    await remember((error as Error).message);
+    await remember(
+      error instanceof CancelledError
+        ? 'The refresh was stopped before it finished.'
+        : (error as Error).message,
+    );
     throw error;
   } finally {
-    await closeProjectQuietly();
+    stopBackgroundPython();
+    if (workspace) await removeWorkspace(workspace);
   }
 }
 
@@ -426,9 +490,6 @@ export function registerPublishHandlers() {
   ipcMain.handle('publish:list', () => list());
   ipcMain.handle('publish:forget', (_event, projectPath: string) =>
     forget(String(projectPath)),
-  );
-  ipcMain.handle('publish:refresh', (_event, projectPath: string) =>
-    refresh(String(projectPath)),
   );
   ipcMain.handle('publish:add-files', (event) =>
     addFiles(BrowserWindow.fromWebContents(event.sender)!),

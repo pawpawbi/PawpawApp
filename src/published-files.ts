@@ -1,9 +1,11 @@
 // The records of published reports: published.json in a project (enough to rebuild the list),
-// and published-reports.json in userData (the list on this computer, for refreshing them).
+// and published-reports.json in userData (the list on this computer, for refreshing them, with
+// each one's refresh schedule).
 // Projects may be someone else's, so both are cleaned on reading. File format:
 // docs/pawpaw-file-format.md. No Electron imports, so this is tested with plain Node.
 import { isReportUrl, REPORT_ID, REPORT_VISIBILITIES } from './pawpaw-server';
 import { SAFE_ID } from './shared/ids';
+import { cleanStoredSchedule } from './shared/schedule';
 import type {
   PublishedOrg,
   PublishedProject,
@@ -73,25 +75,36 @@ export function cleanList(value: unknown): PublishedProject[] {
         ...(typeof e.lastError === 'string' && e.lastError
           ? { lastError: e.lastError }
           : {}),
+        ...scheduleOf(e),
       },
     ];
   });
 }
 
+/** An entry's refresh schedule and how far it has run, if it has a valid one. */
+function scheduleOf(
+  e: Partial<PublishedProject> | undefined,
+): Pick<PublishedProject, 'schedule' | 'scheduleDoneUntil'> {
+  const schedule = cleanStoredSchedule(e?.schedule);
+  if (!schedule) return {};
+  const doneUntil = time(e?.scheduleDoneUntil);
+  return { schedule, ...(doneUntil ? { scheduleDoneUntil: doneUntil } : {}) };
+}
+
 /**
  * The list with `entry` added, replacing the entry for the same report (a moved or renamed
  * project file) and any for the same project file (which has one report: a new one replaces it),
- * sorted by project name.
+ * sorted by project name. The replaced entry's refresh schedule carries over.
  */
 export function withEntry(
   list: PublishedProject[],
   entry: PublishedProject,
 ): PublishedProject[] {
+  const replaced = (e: PublishedProject) =>
+    e.reportId === entry.reportId || e.projectPath === entry.projectPath;
+  const previous = list.find(replaced);
   return [
-    ...list.filter(
-      (e) =>
-        e.reportId !== entry.reportId && e.projectPath !== entry.projectPath,
-    ),
-    entry,
+    ...list.filter((e) => !replaced(e)),
+    entry.schedule ? entry : { ...entry, ...scheduleOf(previous) },
   ].sort((a, b) => a.projectName.localeCompare(b.projectName));
 }

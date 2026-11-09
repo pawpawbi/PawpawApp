@@ -11,6 +11,7 @@ import type {
   ProjectsApi,
   PublishApi,
   PublishProgress,
+  RefreshStatus,
   PythonApi,
   ReportApi,
 } from './shared/types';
@@ -146,6 +147,17 @@ const publish: PublishApi = {
   list: () => ipcRenderer.invoke('publish:list'),
   forget: (projectPath) => ipcRenderer.invoke('publish:forget', projectPath),
   refresh: (projectPath) => ipcRenderer.invoke('publish:refresh', projectPath),
+  refreshStatus: () => ipcRenderer.invoke('publish:refresh-status'),
+  onRefreshStatus: (callback) => {
+    const listener = (_event: IpcRendererEvent, status: RefreshStatus) =>
+      callback(status);
+    ipcRenderer.on('publish:refresh-status', listener);
+    return () => ipcRenderer.removeListener('publish:refresh-status', listener);
+  },
+  setSchedule: (projectPath, schedule) =>
+    ipcRenderer.invoke('publish:set-schedule', projectPath, schedule),
+  getStartAtLogin: () => ipcRenderer.invoke('publish:get-start-at-login'),
+  setStartAtLogin: (on) => ipcRenderer.invoke('publish:set-start-at-login', on),
   addFiles: () => ipcRenderer.invoke('publish:add-files'),
   onProgress: (callback) => {
     const listener = (_event: IpcRendererEvent, progress: PublishProgress) =>

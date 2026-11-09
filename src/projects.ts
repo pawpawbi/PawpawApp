@@ -26,13 +26,16 @@ import type {
   RecentProject,
   WorkflowStage,
 } from './shared/types';
+import { backgroundProject } from './project-context';
 import {
   createWorkspace,
   markWorkspaceDirty,
   openWorkspace,
+  readWorkspaceState,
   removeWorkspace,
   renameWorkspace,
   saveWorkspace,
+  workspacePaths,
   type Workspace,
   type WorkspaceOptions,
   type WorkspaceState,
@@ -119,9 +122,11 @@ function notifyChanged() {
   }
 }
 
-/** Records that the open project has changed since it was last saved. */
+/** Records that the open project (or the background refresh's) has changed since it was saved. */
 export async function markProjectChanged() {
-  if (await markWorkspaceDirty(requireSession())) notifyChanged();
+  const background = backgroundProject();
+  if (background) await markWorkspaceDirty(background.workspace);
+  else if (await markWorkspaceDirty(requireSession())) notifyChanged();
 }
 
 /**
@@ -159,16 +164,47 @@ export const onProjectOpened = (listener: () => Promise<void>) => {
   openedListeners.add(listener);
 };
 
+/**
+ * Called before a file is opened in the window; resolves false to not open it. A background
+ * refresh of the same file asks whether to wait for it or stop it (scheduled-refresh.ts).
+ */
+let beforeOpening: (
+  filePath: string,
+  win: BrowserWindow,
+) => Promise<boolean> = async () => true;
+
+export const onBeforeOpening = (check: typeof beforeOpening) => {
+  beforeOpening = check;
+};
+
+/** Where projects open in the window keep their working folders. */
+const windowWorkspaces = () => workspaceOptions().root;
+
+/**
+ * Whether the window left unsaved changes to this file when PawpawBI closed unexpectedly. A
+ * background refresh leaves such a file alone, so they're never lost unseen.
+ */
+export async function hasRecoverableChanges(filePath: string, id: string) {
+  const { statePath } = workspacePaths(windowWorkspaces(), id, filePath);
+  return (await readWorkspaceState(statePath))?.dirty === true;
+}
+
 async function openProjectFile(
   filePath: string,
   win: BrowserWindow,
-): Promise<Project> {
-  if (session) throw new Error('Close the open project first.');
-
-  session = await openWorkspace(filePath, {
-    ...workspaceOptions(),
-    askToRecover: (name, state) => askToRecover(win, name, state),
-  });
+): Promise<Project | null> {
+  if (session || opening) throw new Error('Close the open project first.');
+  // From here, no background refresh starts on this file (scheduled-refresh.ts).
+  opening = filePath;
+  try {
+    if (!(await beforeOpening(filePath, win))) return null;
+    session = await openWorkspace(filePath, {
+      ...workspaceOptions(),
+      askToRecover: (name, state) => askToRecover(win, name, state),
+    });
+  } finally {
+    opening = null;
+  }
   await addRecent(session.manifest.name, filePath);
   notifyChanged();
   for (const listener of openedListeners) {
@@ -180,29 +216,26 @@ async function openProjectFile(
 }
 
 /**
- * Opens a project without a window (refreshing a published report from the start screen). A
- * project with unsaved changes from a crash isn't opened, so they're never discarded unseen.
+ * Opens a copy of a project for a background refresh, in its own working folder apart from the
+ * window's. A copy left by a refresh that never finished is discarded: the file is untouched
+ * until a refresh saves it.
  */
-export async function openProjectInBackground(filePath: string) {
-  if (session) throw new Error('Close the open project first.');
-  session = await openWorkspace(filePath, {
-    ...workspaceOptions(),
-    askToRecover: () => {
-      throw new Error(
-        'This project has unsaved changes from when PawpawBI closed unexpectedly. Open it to recover or discard them first.',
-      );
-    },
+export const openBackgroundWorkspace = (filePath: string) =>
+  openWorkspace(filePath, {
+    root: path.join(app.getPath('userData'), 'background-workspaces'),
+    appLabel: appLabel(),
+    askToRecover: async () => false,
   });
-  notifyChanged();
-}
 
-/** Closes the open project without saving or asking (after a background refresh). */
-export async function closeProjectQuietly() {
-  if (!session) return;
-  const closed = session;
-  session = null;
-  await removeWorkspace(closed);
-  notifyChanged();
+/** Saves a background refresh's copy to its file, once its work has finished. */
+export async function saveBackgroundWorkspace(ws: Workspace) {
+  work.block(ws.manifest.id);
+  try {
+    await work.idle(ws.manifest.id);
+    await saveWorkspace(ws, appLabel());
+  } finally {
+    work.unblock(ws.manifest.id);
+  }
 }
 
 async function createProject(win: BrowserWindow): Promise<Project | null> {
@@ -365,7 +398,21 @@ async function deleteProject(win: BrowserWindow): Promise<boolean> {
 
 export const hasOpenProject = () => session !== null;
 
-/** The open project's ID, name and working folder, for other modules that use its files. */
+/** A file the window is opening, before it's open. */
+let opening: string | null = null;
+
+/** The project open (or opening) in the window, if any; never a background refresh's. */
+export const windowProject = () =>
+  session
+    ? { id: session.manifest.id, filePath: session.filePath }
+    : opening
+      ? { id: '', filePath: opening }
+      : null;
+
+/**
+ * The open project's ID, name and working folder, for other modules that use its files. Inside
+ * a background refresh, that refresh's project instead (project-context.ts).
+ */
 export function openProject(): {
   id: string;
   name: string;
@@ -373,7 +420,7 @@ export function openProject(): {
   /** The .pawpaw file. */
   filePath: string;
 } {
-  const s = requireSession();
+  const s = backgroundProject()?.workspace ?? requireSession();
   return {
     id: s.manifest.id,
     name: s.manifest.name,
