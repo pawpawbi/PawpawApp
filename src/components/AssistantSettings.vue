@@ -324,8 +324,8 @@ function onKeydown(event: KeyboardEvent) {
       </p>
       <p v-else class="privacy">
         Your messages, and the samples of your data the assistant looks at, go
-        through PawpawBI. PawpawBI doesn't keep
-        them, only how much of your allowance each reply used.
+        through PawpawBI. PawpawBI doesn't keep them, only how much of your
+        allowance each reply used.
       </p>
 
       <footer class="foot">
