@@ -1,13 +1,16 @@
 // Data source credentials (passwords, API keys, tokens), encrypted with the operating system's
 // secure storage and kept on this computer only, never in the .pawpaw file.
-// Stored at userData/credentials/<project id>/<source id>.bin.
+// Stored at userData/credentials/<project id>/<source id>.bin. Next to each, <source id>.settings.json
+// records the connector and non-secret settings the source was last saved or run with on this
+// computer (see confirmSettings): a source only runs with the secrets saved here once its
+// settings match, so a changed copy of a project can't point them at someone else's server.
 import { app, safeStorage } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { removePath } from './fs-json';
+import { readJson, removePath, writeJson } from './fs-json';
 import { SAFE_ID } from './shared/ids';
 
-function credentialsPath(projectId: string, sourceId: string) {
+function credentialsPath(projectId: string, sourceId: string, suffix = '.bin') {
   // Both IDs become part of a path, so refuse anything that isn't a plain ID.
   if (!SAFE_ID.test(projectId) || !SAFE_ID.test(sourceId))
     throw new Error('Invalid ID.');
@@ -15,7 +18,7 @@ function credentialsPath(projectId: string, sourceId: string) {
     app.getPath('userData'),
     'credentials',
     projectId,
-    `${sourceId}.bin`,
+    `${sourceId}${suffix}`,
   );
 }
 
@@ -62,6 +65,63 @@ export async function writeSecrets(
 
 export async function deleteSecrets(projectId: string, sourceId: string) {
   await removePath(credentialsPath(projectId, sourceId));
+  await removePath(credentialsPath(projectId, sourceId, '.settings.json'));
+}
+
+/** The connector and non-secret settings a source was confirmed with on this computer. */
+export interface ConfirmedSettings {
+  type: string;
+  options: Record<string, unknown>;
+}
+
+function cleanConfirmed(raw: unknown): ConfirmedSettings | null {
+  const c = raw as Partial<ConfirmedSettings> | null;
+  return typeof c?.type === 'string' &&
+    c.options !== null &&
+    typeof c.options === 'object' &&
+    !Array.isArray(c.options)
+    ? { type: c.type, options: c.options }
+    : null;
+}
+
+/** JSON with keys in order, so two settings compare the same however they were written. */
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map(
+        (k) =>
+          `${JSON.stringify(k)}:${stable((value as Record<string, unknown>)[k])}`,
+      )
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+export const sameSettings = (a: ConfirmedSettings, b: ConfirmedSettings) =>
+  stable(a) === stable(b);
+
+/** The settings a source was last confirmed with here, or null if it never was. */
+export const readConfirmedSettings = (projectId: string, sourceId: string) =>
+  readJson(
+    credentialsPath(projectId, sourceId, '.settings.json'),
+    cleanConfirmed,
+  );
+
+/**
+ * Records that the source's settings were entered or accepted on this computer, so it may run
+ * with the secrets saved here (data.ts, `confirmSource`).
+ */
+export async function confirmSettings(
+  projectId: string,
+  sourceId: string,
+  settings: ConfirmedSettings,
+) {
+  await writeJson(
+    credentialsPath(projectId, sourceId, '.settings.json'),
+    settings,
+  );
 }
 
 /** Deletes every saved credential of a project, when the project is deleted. */

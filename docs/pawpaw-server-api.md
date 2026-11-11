@@ -83,8 +83,8 @@ in any browser); the app never handles it. A link works once, for 24 hours, and 
 account still has the address it was sent to. `POST /auth/send-verification` emails a new link
 (the old one stops working), and does nothing for an address that's already verified. An
 address gets at most one email every 5 minutes and 5 a day (`429` past that). The app learns
-the result from `emailVerified` (`GET /account`). Only the assistant needs a verified address so
-far (`403` `email_not_verified`); signing in and publishing don't.
+the result from `emailVerified` (`GET /account`). Signing in doesn't need a verified address;
+publishing, inviting and the assistant do (`403` `email_not_verified`).
 
 **Forgetting the password.** `POST /auth/forgot-password` emails the address a link to the web
 console, where the user chooses a new password (`POST /auth/reset-password`). It answers `204`
@@ -209,7 +209,9 @@ exist. In a browser, a pass stands in for the token (Viewing, below).
 later.
 
 **Uploading.** `POST /reports` creates a report and `POST /reports/<id>` uploads a new version
-of one. Both list the files to upload, and get a presigned URL for each:
+of one. Both need a verified email address (`403` `email_not_verified`), and an account may
+start at most 60 uploads an hour (`429` `too_many_requests`). Both list the files to upload, and
+get a presigned URL for each:
 
 - `files`: `[{ path, contentType, size, sha256 }]`. `path` is relative to the site's root
   (`index.html`, `pages/<guid>.html`, `assets/report.css`, `data/<dataset>.json`): no `..`,
@@ -335,6 +337,7 @@ Refused before a reply starts:
   limit for everyone, with `Retry-After`.
 
 Every reply counts against the allowance, including one the user stops partway (closing the
-connection stops it; what was generated still counts). The server keeps no conversation: it
+connection stops it; what was generated still counts) or leaves before it starts (the request
+still counts). The server keeps no conversation: it
 doesn't store or log requests or replies, only how many tokens each reply used, its model and
 when.

@@ -31,7 +31,10 @@ function cleanOrg(value: unknown): PublishedOrg | null {
 /** A project's published.json, or null if it's missing or not valid. */
 export function cleanPublished(value: unknown): PublishedReport | null {
   const p = (value as { pawpawbi?: Partial<PublishedReport> } | null)?.pawpawbi;
-  if (!REPORT_ID.test(String(p?.reportId ?? '')) || !isReportUrl(p?.url)) {
+  if (
+    !REPORT_ID.test(String(p?.reportId ?? '')) ||
+    !isReportUrl(p?.url, String(p!.reportId))
+  ) {
     return null;
   }
   return {
@@ -95,13 +98,27 @@ function scheduleOf(
  * The list with `entry` added, replacing the entry for the same report (a moved or renamed
  * project file) and any for the same project file (which has one report: a new one replaces it),
  * sorted by project name. The replaced entry's refresh schedule carries over.
+ *
+ * With `replaceOtherFile` false, another file's entry for the same report is kept and `entry`
+ * left out: a copy of a project, or someone else's file naming a report of this computer's,
+ * doesn't take the report's place (and its schedule) from the file that has it.
  */
 export function withEntry(
   list: PublishedProject[],
   entry: PublishedProject,
+  { replaceOtherFile = true } = {},
 ): PublishedProject[] {
   const replaced = (e: PublishedProject) =>
     e.reportId === entry.reportId || e.projectPath === entry.projectPath;
+  if (
+    !replaceOtherFile &&
+    list.some(
+      (e) =>
+        e.reportId === entry.reportId && e.projectPath !== entry.projectPath,
+    )
+  ) {
+    return list;
+  }
   const previous = list.find(replaced);
   return [
     ...list.filter((e) => !replaced(e)),

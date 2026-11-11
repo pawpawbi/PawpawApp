@@ -184,3 +184,40 @@ def test_sidecar_rpc_after_load(run_job, tmp_path, project_data_dir, budget_xlsx
 def test_url_loads_json_api(run_job, project_data_dir):
     settings = {"url": "https://jsonplaceholder.typicode.com/comments"}
     assert result_of(run_job(load_job("url", settings, project_data_dir))) == {"tables": [{"name": "comments", "rows": 500}]}
+
+
+def test_errors_hide_secrets_addresses_queries_and_sign_ins():
+    from runner import redact
+
+    secrets = ["hunter2-pass", "sk-live-abc123", "ab"]  # too short to blank: it would hit every "ab"
+    text = (
+        "401 Client Error: Unauthorized for url: https://api.example.com/orders?api_key=sk-live-abc123&page=2\n"
+        "postgresql://bob:hunter2-pass@db.corp:5432/sales?sslmode=require (hunter2-pass) abc"
+    )
+    assert redact(text, secrets) == (
+        "401 Client Error: Unauthorized for url: https://api.example.com/orders?•••\n"
+        "postgresql://•••@db.corp:5432/sales?••• (•••) abc"
+    )
+    # Ordinary text keeps its question marks.
+    assert redact("Was it moved? Yes.", []) == "Was it moved? Yes."
+
+
+def test_a_failed_load_reports_no_query_string_or_secret(run_job, project_data_dir):
+    # Nothing listens on port 9: the error quotes the address, whose query string must not show.
+    settings = {"url": "http://127.0.0.1:9/data.csv?token=SECRETTOKEN42"}
+    events = run_job(load_job("url", settings, project_data_dir))
+    assert events[-1]["event"] == "error"
+    assert "SECRETTOKEN42" not in events[-1]["message"]
+    assert "SECRETTOKEN42" not in events[-1]["detail"]
+    # A secret setting's value never shows either, wherever a library put it (here, the API
+    # key goes in the query string, which the connection error quotes).
+    settings = {
+        "base_url": "http://127.0.0.1:9/",
+        "endpoints": "orders: /orders",
+        "auth": "api_key",
+        "token": "SECRETKEY42",
+        "api_key_location": "query",
+    }
+    events = run_job(load_job("rest_api", settings, project_data_dir))
+    assert events[-1]["event"] == "error"
+    assert "SECRETKEY42" not in json.dumps(events)

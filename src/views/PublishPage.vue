@@ -55,6 +55,10 @@ const target = computed(
 /** A new report is being published: the first time, or over one that's gone. */
 const choosing = computed(() => !published.value || !!gone.value);
 
+async function open(report: PublishedReport) {
+  error.value = (await openReport(report)) ?? '';
+}
+
 onMounted(async () => {
   try {
     [hasReport.value, published.value] = await Promise.all([
@@ -205,7 +209,7 @@ async function toFolder() {
             :href="published.url"
             target="_blank"
             rel="noreferrer"
-            @click.prevent="openReport(published)"
+            @click.prevent="open(published)"
             >{{ published.url }}</a
           >
           <small>

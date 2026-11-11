@@ -127,7 +127,9 @@ Identifies the project and the format version. Required.
 | `tables`       | The tables in `data/raw/` this source produced. No two sources may produce the same table                   |
 | `lastLoadedAt` | When the data was last loaded                                                                               |
 
-**Credentials** (passwords, API keys, tokens: every connector field marked `secret`) are stored in the operating system's secure storage on the user's machine, via Electron's `safeStorage`, keyed by project ID and source ID. They are never in the file. When someone opens a project on another computer, the data and report work immediately; refreshing a source asks them to sign in again.
+**Credentials** (passwords, API keys, tokens: every connector field marked `secret`) are stored in the operating system's secure storage on the user's machine, via Electron's `safeStorage`, keyed by project ID and source ID. They are never in the file. When someone opens a project on another computer, the data and report work immediately; refreshing a source asks them to confirm its settings (see below) and to sign in again.
+
+**A source's settings are confirmed per computer.** Alongside the saved credentials, PawpawBI records the connector and `options` a source was last saved or run with on that computer. Before a source runs, its `options` in the file must match that record; if they don't (a project from someone else, or a copy of one's own whose settings were changed), the app shows what the source connects to or reads and asks before running it, and doesn't use the credentials saved on that computer until then. So a changed copy of a shared project can't send someone's saved password elsewhere, or read their other files, unseen.
 
 **File paths** in `options` point to the original location on the computer that loaded them. On another computer that path may not exist. The data already loaded is unaffected; only refreshing needs the user to locate the file again.
 

@@ -695,7 +695,17 @@ export function startStubServer(port = 0, { onEmail = () => {} } = {}) {
       }
 
       // --- Reports ---
+      /** Publishing needs a verified address, like the assistant. */
+      const unverified = () =>
+        send(403, {
+          error: {
+            code: 'email_not_verified',
+            message:
+              'Verify your email address first: open the link we emailed you.',
+          },
+        });
       if (req.method === 'POST' && route === '/reports') {
+        if (!users.get(email).verified) return unverified();
         const { title, files, orgId, visibility } = await json();
         const personal = [...orgs].find(([, o]) => o.personalOf === userId)[0];
         const where = orgId ?? personal;
@@ -726,6 +736,7 @@ export function startStubServer(port = 0, { onEmail = () => {} } = {}) {
         });
       }
       if (req.method === 'POST' && reportRoute) {
+        if (!users.get(email).verified) return unverified();
         const entry = reportFor(reportRoute[1], userId, 'edit');
         const { scope, files } = await json();
         if (scope !== 'site' && scope !== 'data')

@@ -162,11 +162,7 @@ test('the email address is verified through the emailed link, which the console 
 });
 
 test('publishing uploads each file to S3, then upload_complete makes the version current', async () => {
-  const { token } = await pawpawServer(stub.url).signUp(
-    'cy@example.com',
-    'password1',
-  );
-  const server = pawpawServer(stub.url, token);
+  const { server } = await account('cy@example.com');
   const site = pack({
     'index.html': '<h1>Sales</h1>',
     'data/sales.json': '{"rows":[[1]]}',
@@ -264,11 +260,7 @@ test('publishing uploads each file to S3, then upload_complete makes the version
 });
 
 test('S3 only takes the file the URL was signed for', async () => {
-  const { token } = await pawpawServer(stub.url).signUp(
-    'di@example.com',
-    'password2',
-  );
-  const server = pawpawServer(stub.url, token);
+  const { server } = await account('di@example.com');
   const [packed] = pack({ 'index.html': 'real' });
   const { uploads } = await server.createReport('X', [packed.file]);
   const [other] = pack({ 'index.html': 'swapped' });
@@ -289,17 +281,11 @@ test('S3 only takes the file the URL was signed for', async () => {
 });
 
 test("other accounts can't change a report, and unsafe paths are refused", async () => {
-  const owner = pawpawServer(
-    stub.url,
-    (await pawpawServer(stub.url).signUp('ed@example.com', 'password3')).token,
-  );
+  const owner = (await account('ed@example.com')).server;
   const report = await upload(owner, pack({ 'index.html': 'mine' }), (files) =>
     owner.createReport('Mine', files),
   );
-  const other = pawpawServer(
-    stub.url,
-    (await pawpawServer(stub.url).signUp('fi@example.com', 'password4')).token,
-  );
+  const other = (await account('fi@example.com')).server;
   // Anyone may open a report in a personal workspace (it's open to the link), but not change it.
   const refused = await other
     .updateReport(
@@ -330,6 +316,18 @@ test('report links are HTTPS, or plain HTTP only on this computer', () => {
   assert.ok(!isReportUrl('http://example.com/'));
   assert.ok(!isReportUrl('http://localhost.example.com/'));
   assert.ok(!isReportUrl('javascript:alert(1)'));
+  // For a report: only its own host, on the report domain (or .localhost in development).
+  const id = 'k3j9xq2mtb7w4zpa';
+  assert.ok(isReportUrl(`https://${id}.pawpawreports.com/`, id));
+  assert.ok(
+    isReportUrl(`https://${id}.pawpawreports.com/_pawpaw/signed-in`, id),
+  );
+  assert.ok(isReportUrl(`http://${id}.localhost:8002/`, id));
+  assert.ok(!isReportUrl('https://other000000000.pawpawreports.com/', id));
+  assert.ok(!isReportUrl(`https://${id}.pawpawreports.com.evil.example/`, id));
+  assert.ok(!isReportUrl(`https://evil.example/${id}`, id));
+  assert.ok(!isReportUrl(`http://${id}.pawpawreports.com/`, id));
+  assert.ok(!isReportUrl('http://127.0.0.1:8790/', id));
 });
 
 test("a server that can't be reached says so", async () => {
@@ -341,8 +339,8 @@ test("a server that can't be reached says so", async () => {
 
 test('published records from project files are checked', () => {
   const report = {
-    reportId: 'abc_123',
-    url: 'https://reports.example.com/abc/',
+    reportId: 'abc123',
+    url: 'https://abc123.pawpawreports.com/',
     account: 'ana@example.com',
     org: { id: 'Org_1', name: 'Acme sales', personal: false },
     visibility: 'org' as const,
@@ -378,6 +376,34 @@ test('published records from project files are checked', () => {
   assert.equal(
     cleanPublished({ pawpawbi: { ...report, url: 'http://evil.example/' } }),
     null,
+  );
+  // Only the report's own host: not another report's, nor any other https site.
+  assert.equal(
+    cleanPublished({
+      pawpawbi: { ...report, url: 'https://zzz999.pawpawreports.com/' },
+    }),
+    null,
+  );
+  assert.equal(
+    cleanPublished({
+      pawpawbi: {
+        ...report,
+        url: 'https://abc123.pawpawreports.com.evil.example/',
+      },
+    }),
+    null,
+  );
+  assert.equal(
+    cleanPublished({
+      pawpawbi: { ...report, url: 'https://pawpawbi-login.example/abc123' },
+    }),
+    null,
+  );
+  assert.deepEqual(
+    cleanPublished({
+      pawpawbi: { ...report, url: 'http://abc123.localhost:8790/' },
+    }),
+    { ...report, url: 'http://abc123.localhost:8790/' },
   );
   assert.equal(cleanPublished(null), null);
 
@@ -432,6 +458,23 @@ test('published records from project files are checked', () => {
   assert.deepEqual(withEntry([scheduled], { ...entry, lastError: 'x' }), [
     { ...scheduled, lastError: 'x' },
   ]);
+  // Unless told it may, another file for the same report (a copy, or someone else's file
+  // naming this report) doesn't take the listed file's place or its schedule.
+  assert.deepEqual(withEntry([scheduled], moved, { replaceOtherFile: false }), [
+    scheduled,
+  ]);
+  assert.deepEqual(
+    withEntry(
+      [scheduled],
+      { ...entry, lastError: 'x' },
+      { replaceOtherFile: false },
+    ),
+    [{ ...scheduled, lastError: 'x' }],
+  );
+  assert.deepEqual(withEntry([scheduled], other, { replaceOtherFile: false }), [
+    other,
+    scheduled,
+  ]);
 });
 
 /** A signed-up account: its client and ID. */
@@ -440,6 +483,13 @@ async function account(email: string) {
     email,
     'long enough',
   );
+  // Publishing and inviting need a verified address.
+  const verified = await fetch(`${stub.url}/auth/verify-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: lastLink('verify', email) }),
+  });
+  assert.equal(verified.status, 204);
   return {
     server: pawpawServer(stub.url, token),
     id: account.id,
@@ -477,13 +527,6 @@ const lastLink = (kind: string, to: string) => {
 /** An organisation with an owner, an admin, two editors and a viewer, who joined by invitation. */
 async function team(prefix: string) {
   const owner = await account(`${prefix}-owner@example.com`);
-  // Inviting needs a verified address.
-  const verified = await fetch(`${stub.url}/auth/verify-email`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: lastLink('verify', owner.email) }),
-  });
-  assert.equal(verified.status, 204);
   const { org } = await api(owner.token, 'POST', '/orgs', { name: 'Acme' });
   const members = {
     admin: await account(`${prefix}-admin@example.com`),
@@ -629,11 +672,7 @@ test('errors carry the status and code the server sent', async () => {
 });
 
 test('uploading reports progress as each file finishes', async () => {
-  const { token } = await pawpawServer(stub.url).signUp(
-    'gu@example.com',
-    'password5',
-  );
-  const server = pawpawServer(stub.url, token);
+  const { server } = await account('gu@example.com');
   const packed = pack({
     'index.html': '<h1>A</h1>',
     'pages/a.html': '<p>a</p>',
@@ -703,7 +742,10 @@ test('a pass opens a members-only report in the browser, as the account that ask
 });
 
 test('the free assistant needs a verified address, replies as Claude would, and counts each reply', async () => {
-  const user = await account('assistant@example.com');
+  // Signed up but not verified (account() verifies).
+  const email = 'assistant@example.com';
+  const { token } = await pawpawServer(stub.url).signUp(email, 'long enough');
+  const user = { token, email };
   const request = {
     model: '',
     system: 'Help.',

@@ -12,13 +12,13 @@ Writes events to stdout, one JSON object per line:
 """
 
 import json
+import re
 import sys
 import traceback
 from pathlib import Path
 
-# stdout carries events only; anything libraries print goes to stderr instead.
+# Where events go: stdout, which main() keeps for them alone (libraries' prints go to stderr).
 _events = sys.stdout
-sys.stdout = sys.stderr
 
 
 def emit(event: str, **data):
@@ -105,7 +105,33 @@ def _friendly_message(exc: BaseException) -> str:
     return message if isinstance(exc, ValueError) else f"{type(exc).__name__}: {message}"
 
 
+def redact(text: str, secrets: list[str]) -> str:
+    """`text` with the job's secret values, web addresses' query strings and user:password@
+    parts blanked out. Error text is shown, kept with a published report's refresh status and
+    sent to the assistant's model, so a password, key or token (which a library's error can
+    quote, address and all) must never be in it."""
+    for secret in sorted((s for s in secrets if len(s) >= 4), key=len, reverse=True):
+        text = text.replace(secret, "•••")
+    text = re.sub(r"(\w+://)[^/\s@]+@", r"\1•••@", text)
+    return re.sub(r"\?[^\s'\")\]]*=[^\s'\")\]]*", "?•••", text)
+
+
+def _secrets(job: dict | None, connector) -> list[str]:
+    """The job's secret settings' values: the connector's secret fields, or (an unknown
+    connector) every text setting."""
+    settings = (job or {}).get("settings") or {}
+    if not isinstance(settings, dict):
+        return []
+    keys = {f.key for f in connector.fields if f.secret} if connector else set(settings)
+    return [v for k, v in settings.items() if k in keys and isinstance(v, str)]
+
+
 def main():
+    global _events
+    # stdout carries events only; anything libraries print goes to stderr instead.
+    _events = sys.stdout
+    sys.stdout = sys.stderr
+    job = connector = None
     try:
         job = json.loads(sys.stdin.readline().lstrip("﻿"))  # tolerate a UTF-8 byte-order mark
         import connectors
@@ -114,7 +140,12 @@ def main():
         actions = {"discover": discover, "load": load}
         emit("result", result=actions[job["action"]](job, connector))
     except Exception as exc:
-        emit("error", message=_friendly_message(exc), detail=traceback.format_exc())
+        secrets = _secrets(job, connector)
+        emit(
+            "error",
+            message=redact(_friendly_message(exc), secrets),
+            detail=redact(traceback.format_exc(), secrets),
+        )
         sys.exit(1)
 
 

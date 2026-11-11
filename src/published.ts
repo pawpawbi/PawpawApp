@@ -111,8 +111,12 @@ export const updateEntry = (
     entries.map((e) => (e.projectPath === projectPath ? change(e) : e)),
   );
 
-/** Adds or updates the open project's entry in the list. */
-async function listOpenProject(report: PublishedReport, lastError?: string) {
+/** Adds or updates the open project's entry in the list (`replaceOtherFile`: see withEntry). */
+async function listOpenProject(
+  report: PublishedReport,
+  lastError?: string,
+  replaceOtherFile = true,
+) {
   const project = openProject();
   const entry: PublishedProject = {
     ...report,
@@ -121,8 +125,26 @@ async function listOpenProject(report: PublishedReport, lastError?: string) {
     projectPath: project.filePath,
     ...(lastError ? { lastError } : {}),
   };
-  const entries = await updateList((entries) => withEntry(entries, entry));
+  const entries = await updateList((entries) =>
+    withEntry(entries, entry, { replaceOtherFile }),
+  );
   return entries.find((e) => e.projectPath === entry.projectPath) ?? entry;
+}
+
+/**
+ * Whether a file may take a report's place in the list from another file listed for it: only
+ * once that file is gone (moved or renamed). A copy of a project, or someone else's file
+ * naming a report of this computer's, leaves the listed file and its refresh schedule alone.
+ */
+async function mayReplaceOtherFile(reportId: string, projectPath: string) {
+  const other = (await list()).find(
+    (e) => e.reportId === reportId && e.projectPath !== projectPath,
+  );
+  if (!other) return true;
+  return !(await fs.access(other.projectPath).then(
+    () => true,
+    () => false,
+  ));
 }
 
 /** A published project in a .pawpaw file, read without opening it; null if it isn't one. */
@@ -170,17 +192,29 @@ async function addFiles(win: BrowserWindow): Promise<PublishedProject[]> {
   if (canceled) return list();
   const found: PublishedProject[] = [];
   const notPublished: string[] = [];
+  const listedElsewhere: string[] = [];
   for (const filePath of filePaths) {
     const entry = await entryFromFile(filePath).catch(() => null);
-    if (entry) found.push(entry);
-    else notPublished.push(path.basename(filePath));
+    if (!entry) notPublished.push(path.basename(filePath));
+    else if (await mayReplaceOtherFile(entry.reportId, entry.projectPath))
+      found.push(entry);
+    else listedElsewhere.push(path.basename(filePath));
   }
-  const entries = await updateList((list) => found.reduce(withEntry, list));
+  const entries = await updateList((list) =>
+    found.reduce((l, e) => withEntry(l, e), list),
+  );
+  const problems = [];
   if (notPublished.length) {
-    throw new Error(
+    problems.push(
       `${notPublished.join(', ')} ${notPublished.length === 1 ? "hasn't" : "haven't"} been published to PawpawBI, so ${notPublished.length === 1 ? "it wasn't" : "they weren't"} added.`,
     );
   }
+  if (listedElsewhere.length) {
+    problems.push(
+      `${listedElsewhere.join(', ')} ${listedElsewhere.length === 1 ? 'names a report' : 'name reports'} already listed from another file, which keeps its place.`,
+    );
+  }
+  if (problems.length) throw new Error(problems.join(' '));
   return entries;
 }
 
@@ -478,8 +512,14 @@ export async function refreshProject(
 export function registerPublishHandlers() {
   // A published project opened on this computer is (re)listed, with its current path.
   onProjectOpened(async () => {
-    const report = await readPublished(openProject().filesDir);
-    if (report) await listOpenProject(report);
+    const project = openProject();
+    const report = await readPublished(project.filesDir);
+    if (!report) return;
+    await listOpenProject(
+      report,
+      undefined,
+      await mayReplaceOtherFile(report.reportId, project.filePath),
+    );
   });
 
   ipcMain.handle('publish:get', () => readPublished(openProject().filesDir));

@@ -14,7 +14,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
 import { CancelledError, work } from './background';
-import { deleteSecrets, readSecrets, writeSecrets } from './credentials';
+import {
+  confirmSettings,
+  deleteSecrets,
+  readConfirmedSettings,
+  readSecrets,
+  sameSettings,
+  writeSecrets,
+  type ConfirmedSettings,
+} from './credentials';
 import { readJson, removePath, writeJson } from './fs-json';
 import { backgroundProject } from './project-context';
 import { markProjectChanged, openProject, tracked } from './projects';
@@ -180,7 +188,95 @@ export async function saveSource(
     lastLoadedAt: existing?.lastLoadedAt ?? null,
   };
   await writeSource(source);
+  // Entered here, so the source may run with the secrets saved here (confirmSource).
+  await confirmSettings(projectId, id, { type: info.id, options });
   return toDataSource(source);
+}
+
+/** A setting's value as the confirmation shows it, cut short if it's long. */
+function settingText(value: unknown): string {
+  const text = Array.isArray(value)
+    ? value.map(settingText).join(', ')
+    : typeof value === 'boolean'
+      ? value
+        ? 'yes'
+        : 'no'
+      : typeof value === 'object' && value !== null
+        ? JSON.stringify(value)
+        : String(value);
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+}
+
+/** What a source connects to or reads, one line a setting, noting what changed since `before`. */
+function describeSettings(
+  info: ConnectorInfo,
+  options: Record<string, unknown>,
+  before: Record<string, unknown> | undefined,
+): string {
+  const labels = new Map(info.fields.map((f) => [f.key, f.label]));
+  const secret = new Set(info.fields.filter((f) => f.secret).map((f) => f.key));
+  const keys = [
+    ...info.fields.map((f) => f.key),
+    ...Object.keys(options).filter((k) => !labels.has(k)),
+  ].filter((k) => !secret.has(k));
+  const shown = (value: unknown) =>
+    value !== undefined && value !== null && value !== '';
+  const lines = [`Connector: ${info.name}`];
+  for (const key of keys) {
+    const now = options[key];
+    const was = before?.[key];
+    if (!shown(now) && !shown(was)) continue;
+    const changed = before && settingText(now) !== settingText(was);
+    lines.push(
+      `${labels.get(key) ?? key}: ${shown(now) ? settingText(now) : '(none)'}${
+        changed ? ` (was ${shown(was) ? settingText(was) : 'not set'})` : ''
+      }`,
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
+ * A source runs with the secrets saved on this computer only once its settings are confirmed
+ * here. Settings saved through the form (or the assistant) are; a project from someone else,
+ * or a copy of this one whose settings were changed (another host, file or web address), isn't:
+ * the user is shown what it connects to or reads and asked, so a changed copy can't send saved
+ * passwords elsewhere or read other files unseen. A background refresh refuses instead of asking.
+ */
+async function confirmSource(source: SourceFile, info: ConnectorInfo) {
+  const projectId = openProject().id;
+  const current: ConfirmedSettings = {
+    type: source.type,
+    options: source.options,
+  };
+  const confirmed = await readConfirmedSettings(projectId, source.id);
+  if (confirmed && sameSettings(confirmed, current)) return;
+  if (backgroundProject()) {
+    throw new Error(
+      `The settings of "${source.name}" haven't been confirmed on this computer. Open the project and refresh that source there once.`,
+    );
+  }
+  const options = {
+    type: 'question' as const,
+    buttons: ['Run', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    title: 'Check this data source',
+    message: confirmed
+      ? `"${source.name}" has different settings from when it last ran on this computer.`
+      : `"${source.name}" hasn't run on this computer before.`,
+    detail: `${describeSettings(info, source.options, confirmed?.options)}\n\nRun it? Passwords and keys saved on this computer are only used once you have.`,
+  };
+  const win = BrowserWindow.getAllWindows()[0];
+  const { response } = win
+    ? await dialog.showMessageBox(win, options)
+    : await dialog.showMessageBox(options);
+  if (response !== 0) {
+    throw new Error(
+      `"${source.name}" wasn't run: its settings weren't confirmed. Check them with Edit on the source.`,
+    );
+  }
+  await confirmSettings(projectId, source.id, current);
 }
 
 /**
@@ -491,6 +587,7 @@ async function runSourceJob<T>(
   try {
     const source = await readSource(id);
     const info = await connector(source.type);
+    await confirmSource(source, info);
     const python = await ensureEnvironment(info, onProgress);
     const settings = {
       ...source.options,

@@ -20,8 +20,11 @@ How data sources work, the Add data screen, and notes on setting up each connect
 - **Extra packages.** Some connectors download their own packages the first time they're used
   (the gallery says "Downloads on first use"). That needs the internet once and can take a
   minute.
-- **On another computer**, a project keeps its data, but loading asks for passwords again, and
-  file paths may need choosing again.
+- **On another computer**, a project keeps its data, but the first time a source runs there
+  the app shows what it connects to or reads and asks the user to confirm it (also when a
+  source's settings changed since it last ran on this computer); then loading asks for
+  passwords again, and file paths may need choosing again. A scheduled refresh can't ask, so
+  it fails until the user has refreshed that source once by hand.
 - Not every connector has been tested with real data yet. Tested: the file connectors, SQLite and
   the other databases except Snowflake, BigQuery, Redshift and Databricks, S3-compatible storage,
   SFTP, Kafka, the email inbox, Matomo, Strapi and the REST API. If another one fails, say what

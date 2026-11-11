@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { removePath } from './fs-json';
 import {
+  isGone,
   isReportUrl,
   pawpawServer,
   REPORT_ID,
@@ -17,9 +18,8 @@ import {
 import type { AccountState } from './shared/types';
 
 /**
- * The PawpawBI server. It will be https://api.pawpawbi.com/v1; it isn't live yet, so this stays
- * empty and publishing to PawpawBI is unavailable in packaged builds until it is. In development, PAWPAW_SERVER points the app at one, such
- * as the stand-in (npm run server:stub).
+ * The PawpawBI server. In development, PAWPAW_SERVER points the app at another one, such as
+ * the stand-in (npm run server:stub).
  */
 const SERVER_URL = 'https://api.pawpawbi.com/v1';
 
@@ -31,10 +31,7 @@ export function serverUrl(): string | null {
   return local || SERVER_URL || null;
 }
 
-/**
- * The console, once the server is live; in development PAWPAW_CONSOLE points at one (the
- * stand-in has none).
- */
+/** The console; in development PAWPAW_CONSOLE points at one (the stand-in has none). */
 function consoleUrl(): string | null {
   if (!app.isPackaged && process.env.PAWPAW_SERVER) {
     return process.env.PAWPAW_CONSOLE || null;
@@ -180,16 +177,19 @@ export function registerAccountHandlers() {
   // app's session, so a members-only report opens without signing in again there. Without one
   // (signed out, offline, no access), the plain link.
   ipcMain.handle('account:open-report', async (_event, reportId, url) => {
-    if (!isReportUrl(url)) throw new Error('That isn’t a report’s address.');
+    // Only the report's own address: a project file's published.json names both, and could
+    // otherwise point "Open" at any site.
+    if (
+      typeof reportId !== 'string' ||
+      !REPORT_ID.test(reportId) ||
+      !isReportUrl(url, reportId)
+    ) {
+      throw new Error('That isn’t a report’s address.');
+    }
     let address = url;
     const saved = await readSaved();
     const server = serverUrl();
-    if (
-      saved &&
-      server &&
-      typeof reportId === 'string' &&
-      REPORT_ID.test(reportId)
-    ) {
+    if (saved && server) {
       try {
         const granted = await pawpawServer(server, saved.token).reportPass(
           reportId,
@@ -198,6 +198,14 @@ export function registerAccountHandlers() {
         address = signedInUrl(granted.url, granted.pass);
       } catch (error) {
         if (error instanceof SignedOutError) await removePath(accountPath());
+        else if (isGone(error)) {
+          // Deleted, or someone else's (a project file can name any report): its page
+          // couldn't show it either, so say so instead of opening it.
+          throw new Error(
+            'This report isn’t available to your account: it was deleted, or it belongs to someone else.',
+          );
+        }
+        // Otherwise (no connection, say) the plain link, where the viewer asks to sign in.
       }
     }
     await shell.openExternal(address);

@@ -132,11 +132,28 @@ export function signedInUrl(reportUrl: string, pass: string): string {
   return url.href;
 }
 
-/** A web address the app may open, show or send to: https, or loopback (the stand-in). */
-export function isReportUrl(value: unknown): value is string {
+/** Where published reports are viewed: each on its own host, `https://<report id>.<this>/`. */
+export const REPORT_DOMAIN = 'pawpawreports.com';
+
+/**
+ * A web address the app may open, show or send to: https, or loopback (the stand-in). With
+ * `reportId`, only that report's own host (or `<id>.localhost` in development): a project
+ * file's `published.json` can't make the app open some other site as "the report".
+ */
+export function isReportUrl(
+  value: unknown,
+  reportId?: string,
+): value is string {
   if (typeof value !== 'string') return false;
   try {
     const url = new URL(value);
+    if (reportId !== undefined) {
+      const host = `${reportId.toLowerCase()}.`;
+      return (
+        (url.protocol === 'https:' && url.hostname === host + REPORT_DOMAIN) ||
+        (url.protocol === 'http:' && url.hostname === host + 'localhost')
+      );
+    }
     // Plain HTTP only on this computer (development: reports are at <id>.localhost).
     return (
       url.protocol === 'https:' ||
@@ -181,7 +198,10 @@ function cleanAccount(value: unknown): ServerAccount {
 
 function cleanReport(value: unknown): ServerReport {
   const r = value as Partial<ServerReport> | null;
-  if (!REPORT_ID.test(String(r?.id ?? '')) || !isReportUrl(r?.url)) {
+  if (
+    !REPORT_ID.test(String(r?.id ?? '')) ||
+    !isReportUrl(r?.url, String(r!.id))
+  ) {
     throw bad('a report');
   }
   const time = (t: unknown) => (typeof t === 'string' ? t : null);
@@ -349,7 +369,11 @@ export function pawpawServer(
       const body = await call('POST', `/reports/${checkedId(id)}/pass`);
       const pass = body?.pass;
       const url = body?.url;
-      if (typeof pass !== 'string' || !PASS.test(pass) || !isReportUrl(url)) {
+      if (
+        typeof pass !== 'string' ||
+        !PASS.test(pass) ||
+        !isReportUrl(url, id)
+      ) {
         throw new Error(
           'PawpawBI sent an unexpected answer. Try again in a moment.',
         );

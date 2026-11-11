@@ -62,6 +62,10 @@ onBeforeUnmount(unsubscribe);
 const refreshing = (p: PublishedProject) =>
   status.value?.projectPath === p.projectPath;
 
+async function open(project: PublishedProject) {
+  error.value = (await openReport(project)) ?? '';
+}
+
 async function refresh(project: PublishedProject) {
   error.value = '';
   notice.value = '';
@@ -212,7 +216,7 @@ async function addFiles() {
               :href="p.url"
               target="_blank"
               rel="noreferrer"
-              @click.prevent="openReport(p)"
+              @click.prevent="open(p)"
               >{{ p.url }}</a
             >
             <small v-if="p.org || p.visibility">
