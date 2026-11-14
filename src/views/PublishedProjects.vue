@@ -18,6 +18,7 @@ import type {
   PublishedProject,
   RefreshSchedule,
   RefreshStatus,
+  StartAtLogin,
 } from '../shared/types';
 import { timeAgo } from '../time';
 
@@ -30,7 +31,9 @@ const status = ref<RefreshStatus | null>(null);
 /** The project whose schedule is being edited. */
 const editing = ref<string | null>(null);
 const saving = ref(false);
-const startAtLogin = ref(false);
+const startAtLogin = ref<StartAtLogin>({ on: false, setIn: 'app' });
+/** Shown after saving a schedule when PawpawBI doesn't start at sign-in and Windows sets that. */
+const remindStartup = ref(false);
 const error = ref('');
 const notice = ref('');
 
@@ -104,14 +107,20 @@ async function saveSchedule(
   saving.value = true;
   error.value = '';
   notice.value = '';
+  remindStartup.value = false;
   try {
     projects.value = await window.api.publish.setSchedule(
       project.projectPath,
       schedule && plain(schedule),
     );
     editing.value = null;
-    // The first schedule turns on starting with Windows (unless it was turned off).
+    // The first schedule turns on starting with Windows (unless it was turned off). Where only
+    // Windows can, the user is reminded to.
     startAtLogin.value = await window.api.publish.getStartAtLogin();
+    remindStartup.value =
+      !!schedule &&
+      startAtLogin.value.setIn === 'windows' &&
+      startAtLogin.value.on === false;
   } catch (e) {
     error.value = errorMessage(e);
   } finally {
@@ -127,6 +136,25 @@ async function changeStartAtLogin(event: Event) {
     error.value = errorMessage(e);
   }
 }
+
+async function openStartupSettings() {
+  try {
+    await window.api.publish.openStartupSettings();
+  } catch (e) {
+    error.value = `Couldn't open Windows' settings. ${errorMessage(e)}`;
+  }
+}
+
+// Set in Windows: look again when the user comes back from its settings.
+async function recheckStartAtLogin() {
+  if (startAtLogin.value.setIn !== 'windows') return;
+  startAtLogin.value = await window.api.publish
+    .getStartAtLogin()
+    .catch(() => startAtLogin.value);
+  if (startAtLogin.value.on) remindStartup.value = false;
+}
+window.addEventListener('focus', recheckStartAtLogin);
+onBeforeUnmount(() => window.removeEventListener('focus', recheckStartAtLogin));
 
 async function forget(project: PublishedProject) {
   if (
@@ -180,14 +208,35 @@ async function addFiles() {
       </section>
 
       <section class="panel background">
-        <label class="check">
+        <label v-if="startAtLogin.setIn === 'app'" class="check">
           <input
             type="checkbox"
-            :checked="startAtLogin"
+            :checked="startAtLogin.on === true"
             @change="changeStartAtLogin"
           />
           Start PawpawBI in the system tray when I sign in to Windows
         </label>
+        <p v-else class="startup">
+          <strong v-if="startAtLogin.on">
+            PawpawBI starts in the system tray when you sign in to Windows.
+          </strong>
+          <strong v-else-if="startAtLogin.on === false">
+            PawpawBI doesn't start when you sign in to Windows.
+          </strong>
+          <strong v-else>
+            Windows decides whether PawpawBI starts when you sign in.
+          </strong>
+          <span>
+            {{
+              startAtLogin.on
+                ? 'To change that, turn PawpawBI off in'
+                : 'To start it in the system tray then, turn PawpawBI on in'
+            }}
+            <button class="btn-link" @click="openStartupSettings">
+              Windows' startup settings</button
+            >.
+          </span>
+        </p>
         <p class="hint">
           Scheduled refreshes run while PawpawBI is open or in the system tray:
           closing its window leaves it running there (right-click its icon to
@@ -198,6 +247,14 @@ async function addFiles() {
 
       <p v-if="error" class="box-error" role="alert">{{ error }}</p>
       <p v-if="notice" class="box-notice" role="status">{{ notice }}</p>
+      <p v-if="remindStartup" class="box-notice" role="status">
+        The schedule is saved. It only runs while PawpawBI is open or in the
+        system tray, and PawpawBI doesn't start when you sign in to Windows. To
+        start it then, turn PawpawBI on in
+        <button class="btn-link" @click="openStartupSettings">
+          Windows' startup settings</button
+        >.
+      </p>
 
       <p v-if="!projects" class="hint">Loading…</p>
       <div v-else-if="!projects.length" class="empty">
@@ -378,6 +435,17 @@ async function addFiles() {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-weight: 500;
+}
+
+.startup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.startup strong {
   font-weight: 500;
 }
 

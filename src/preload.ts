@@ -158,6 +158,8 @@ const publish: PublishApi = {
     ipcRenderer.invoke('publish:set-schedule', projectPath, schedule),
   getStartAtLogin: () => ipcRenderer.invoke('publish:get-start-at-login'),
   setStartAtLogin: (on) => ipcRenderer.invoke('publish:set-start-at-login', on),
+  openStartupSettings: () =>
+    ipcRenderer.invoke('publish:open-startup-settings'),
   addFiles: () => ipcRenderer.invoke('publish:add-files'),
   onProgress: (callback) => {
     const listener = (_event: IpcRendererEvent, progress: PublishProgress) =>

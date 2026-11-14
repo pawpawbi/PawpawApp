@@ -27,7 +27,6 @@ import {
   START_HIDDEN,
   stopRefresh,
   updateSettings,
-  wantedAtSignIn,
 } from './scheduled-refresh';
 import { createTray, notify } from './tray';
 
@@ -177,10 +176,6 @@ async function quitFully() {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
   if (started || !firstInstance) return;
-  if (process.argv.includes(START_HIDDEN) && !(await wantedAtSignIn())) {
-    app.quit();
-    return;
-  }
   await lockDownNetwork();
   ipcMain.handle('app:get-version', () => app.getVersion());
   registerProjectHandlers();

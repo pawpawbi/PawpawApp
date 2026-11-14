@@ -357,6 +357,17 @@ export interface RefreshSchedule {
   times: string[];
 }
 
+/** Whether PawpawBI starts in the system tray when the user signs in to Windows. */
+export interface StartAtLogin {
+  /** Null when it's set in Windows and Windows doesn't say. */
+  on: boolean | null;
+  /**
+   * Where it's turned on and off: in PawpawBI, or (the Microsoft Store build) only in Windows'
+   * own settings.
+   */
+  setIn: 'app' | 'windows';
+}
+
 /** The refresh running on this computer, if any (by hand or on schedule). */
 export interface RefreshStatus {
   /** The project being refreshed, or null when none is. */
@@ -426,8 +437,11 @@ export interface PublishApi {
     schedule: RefreshSchedule | null,
   ) => Promise<PublishedProject[]>;
   /** Whether PawpawBI starts in the system tray when the user signs in to Windows. */
-  getStartAtLogin: () => Promise<boolean>;
-  setStartAtLogin: (on: boolean) => Promise<boolean>;
+  getStartAtLogin: () => Promise<StartAtLogin>;
+  /** Turns that on or off, where it's set in PawpawBI. */
+  setStartAtLogin: (on: boolean) => Promise<StartAtLogin>;
+  /** Opens Windows' settings at the apps that start at sign-in. */
+  openStartupSettings: () => Promise<void>;
   /** Adds published projects to the list from .pawpaw files the user picks. */
   addFiles: () => Promise<PublishedProject[]>;
   /** Called as an upload to PawpawBI goes. Returns an unsubscribe function. */

@@ -7,8 +7,15 @@
 // once, as soon as it is.
 //
 // Also: starting PawpawBI in the tray when the user signs in to Windows (background.json in
-// userData holds that choice).
-import { app, BrowserWindow, dialog, ipcMain, powerMonitor } from 'electron';
+// userData holds that choice; in the Microsoft Store build it's set in Windows, startup-task.ts).
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  powerMonitor,
+  shell,
+} from 'electron';
 import path from 'node:path';
 import { CancelledError, work } from './background';
 import { readJson, writeJson } from './fs-json';
@@ -17,7 +24,12 @@ import { onBeforeOpening, windowProject } from './projects';
 import { list, refreshProject, updateEntry } from './published';
 import { stopBackgroundPython } from './python';
 import { checkSchedule, isDue } from './shared/schedule';
-import type { PublishedProject, RefreshStatus } from './shared/types';
+import type {
+  PublishedProject,
+  RefreshStatus,
+  StartAtLogin,
+} from './shared/types';
+import { STARTUP_SETTINGS_URL, startupTaskOn } from './startup-task';
 import { parseManifest } from './workspace';
 
 /** Passed when Windows starts PawpawBI at sign-in: it starts in the tray, with no window. */
@@ -200,7 +212,11 @@ async function setSchedule(projectPath: string, value: unknown) {
       : rest;
   });
   // The first schedule turns on starting with Windows, unless the user has chosen already.
-  if (schedule && (await readSettings()).startAtLogin === undefined) {
+  if (
+    schedule &&
+    !isStoreBuild() &&
+    (await readSettings()).startAtLogin === undefined
+  ) {
     await setStartAtLogin(true);
   }
   return entries;
@@ -253,26 +269,27 @@ function loginItem() {
 const isStoreBuild = () => process.windowsStore === true;
 
 /**
- * Whether to go on after Windows started PawpawBI at sign-in. The Microsoft Store build can't
- * register and unregister itself: its package always asks Windows to start it at sign-in (the
- * start-up task in msix/AppxManifest.xml), so it stops straight away unless the user chose that.
- */
-export const wantedAtSignIn = async () =>
-  !isStoreBuild() || (await readSettings()).startAtLogin === true;
-
-/**
  * Registers (or not) PawpawBI to start at sign-in. Only the app installed by its own installer
- * on Windows does; see wantedAtSignIn for the Microsoft Store build.
+ * on Windows does: the Microsoft Store build is turned on and off in Windows' settings.
  */
 export function applyStartAtLogin(on: boolean) {
   if (!app.isPackaged || process.platform !== 'win32' || isStoreBuild()) return;
   app.setLoginItemSettings({ openAtLogin: on, ...loginItem() });
 }
 
+/** Whether PawpawBI starts at sign-in, and where that's set. */
+async function startAtLogin(): Promise<StartAtLogin> {
+  return isStoreBuild()
+    ? { on: await startupTaskOn(process.execPath), setIn: 'windows' }
+    : { on: (await readSettings()).startAtLogin === true, setIn: 'app' };
+}
+
 async function setStartAtLogin(on: boolean) {
-  await updateSettings({ startAtLogin: on });
-  applyStartAtLogin(on);
-  return on;
+  if (!isStoreBuild()) {
+    await updateSettings({ startAtLogin: on });
+    applyStartAtLogin(on);
+  }
+  return startAtLogin();
 }
 
 // --- Opening a project that's being refreshed --------------------------------------------------
@@ -324,9 +341,9 @@ export function registerScheduledRefresh() {
     (_event, projectPath: string, schedule: unknown) =>
       setSchedule(String(projectPath), schedule),
   );
-  ipcMain.handle(
-    'publish:get-start-at-login',
-    async () => (await readSettings()).startAtLogin === true,
+  ipcMain.handle('publish:get-start-at-login', () => startAtLogin());
+  ipcMain.handle('publish:open-startup-settings', () =>
+    shell.openExternal(STARTUP_SETTINGS_URL),
   );
   ipcMain.handle('publish:set-start-at-login', (_event, on: unknown) =>
     setStartAtLogin(on === true),

@@ -54,17 +54,17 @@
         BackgroundColor="transparent" />
       <Extensions>
         <!--
-          Starting at sign-in, in the tray. Always on here, as PawpawBI can't turn it on and off
-          from inside the package: started this way it stops at once unless the user chose to
-          start at sign-in (wantedAtSignIn in src/scheduled-refresh.ts; the parameter is
-          START_HIDDEN there).
+          Starting at sign-in, in the tray. Off until the user turns it on in Windows' settings
+          (Apps, then Startup): PawpawBI can't from inside the package, and shows whether it's on
+          (src/startup-task.ts, where STARTUP_TASK_ID is the TaskId; the parameter is START_HIDDEN
+          in src/scheduled-refresh.ts).
         -->
         <desktop:Extension
           Category="windows.startupTask"
           Executable="app\PawpawBI.exe"
           EntryPoint="Windows.FullTrustApplication"
           uap10:Parameters="--hidden">
-          <desktop:StartupTask TaskId="PawpawBIStartup" Enabled="true" DisplayName="PawpawBI" />
+          <desktop:StartupTask TaskId="PawpawBIStartup" Enabled="false" DisplayName="PawpawBI" />
         </desktop:Extension>
       </Extensions>
     </Application>
