@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The package manifest for the Microsoft Store (MSIX) build. forge.config.mts fills in
+  the version from package.json.
+
+  Identity Name and Publisher, and PublisherDisplayName, are placeholders: the Store gives the
+  real ones when the app's name is reserved (Partner Center, "Product identity"), and a package
+  uploaded with any others is refused.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap10 desktop rescap">
+  <Identity
+    Name="PawpawBI.PawpawBI"
+    ProcessorArchitecture="x64"
+    Version="0.0.0.0"
+    Publisher="CN=PawpawBI" />
+  <Properties>
+    <DisplayName>PawpawBI</DisplayName>
+    <PublisherDisplayName>PawpawBI</PublisherDisplayName>
+    <Logo>assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <!--
+      10.0.19041 (Windows 10, version 2004) is the first with uap10:Parameters. The build uses
+      the Windows SDK of this version to make the package.
+    -->
+    <TargetDeviceFamily
+      Name="Windows.Desktop"
+      MinVersion="10.0.19041.0"
+      MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <Capability Name="internetClient" />
+  </Capabilities>
+  <Applications>
+    <Application
+      Id="App"
+      Executable="app\PawpawBI.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="PawpawBI"
+        Description="Build business intelligence reports from your data, with an assistant."
+        Square44x44Logo="assets\Square44x44Logo.png"
+        Square150x150Logo="assets\Square150x150Logo.png"
+        BackgroundColor="transparent" />
+      <Extensions>
+        <!--
+          Starting at sign-in, in the tray. Always on here, as PawpawBI can't turn it on and off
+          from inside the package: started this way it stops at once unless the user chose to
+          start at sign-in (wantedAtSignIn in src/scheduled-refresh.ts; the parameter is
+          START_HIDDEN there).
+        -->
+        <desktop:Extension
+          Category="windows.startupTask"
+          Executable="app\PawpawBI.exe"
+          EntryPoint="Windows.FullTrustApplication"
+          uap10:Parameters="--hidden">
+          <desktop:StartupTask TaskId="PawpawBIStartup" Enabled="true" DisplayName="PawpawBI" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

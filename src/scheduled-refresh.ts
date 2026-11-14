@@ -249,9 +249,23 @@ function loginItem() {
   };
 }
 
-/** Registers (or not) PawpawBI to start at sign-in. Only the installed app on Windows does. */
+/** True in the Microsoft Store (MSIX) build. */
+const isStoreBuild = () => process.windowsStore === true;
+
+/**
+ * Whether to go on after Windows started PawpawBI at sign-in. The Microsoft Store build can't
+ * register and unregister itself: its package always asks Windows to start it at sign-in (the
+ * start-up task in msix/AppxManifest.xml), so it stops straight away unless the user chose that.
+ */
+export const wantedAtSignIn = async () =>
+  !isStoreBuild() || (await readSettings()).startAtLogin === true;
+
+/**
+ * Registers (or not) PawpawBI to start at sign-in. Only the app installed by its own installer
+ * on Windows does; see wantedAtSignIn for the Microsoft Store build.
+ */
 export function applyStartAtLogin(on: boolean) {
-  if (!app.isPackaged || process.platform !== 'win32') return;
+  if (!app.isPackaged || process.platform !== 'win32' || isStoreBuild()) return;
   app.setLoginItemSettings({ openAtLogin: on, ...loginItem() });
 }
 

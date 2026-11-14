@@ -52,7 +52,7 @@ The first `npm start` downloads a portable Python 3.12 (about 22 MB) into `pytho
 installs the Python packages, which takes a minute or two. Later starts skip this unless the
 pinned versions change.
 
-`npm run make` builds the Windows installer into `out/make/`, and `npm test` runs the tests.
+`npm run make` builds the Windows installer and the Microsoft Store package into `out/make/`, and `npm test` runs the tests.
 
 ## Documentation
 

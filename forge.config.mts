@@ -1,5 +1,6 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
+import { MakerMSIX } from '@electron-forge/maker-msix';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
@@ -17,6 +18,9 @@ const PYTHON_DEV_ONLY = [
   'requirements-test.txt',
 ];
 
+/** The Microsoft Store package's manifest with the version filled in, written before making. */
+const MSIX_MANIFEST = path.resolve('out', 'msix', 'AppxManifest.xml');
+
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
@@ -28,6 +32,22 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   hooks: {
+    preMake: async () => {
+      // The MSIX maker stops if the last package it made is still there.
+      await fs.rm(path.resolve('out', 'make', 'msix'), {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+      });
+      // The Store wants four-part versions ending in 0.
+      const { version } = JSON.parse(await fs.readFile('package.json', 'utf8'));
+      const manifest = await fs.readFile('msix/AppxManifest.xml', 'utf8');
+      await fs.mkdir(path.dirname(MSIX_MANIFEST), { recursive: true });
+      await fs.writeFile(
+        MSIX_MANIFEST,
+        manifest.replace('Version="0.0.0.0"', `Version="${version}.0"`),
+      );
+    },
     // extraResource copies all of python/; the installers are made from what's left here.
     postPackage: async (_config, { outputPaths }) => {
       for (const output of outputPaths) {
@@ -43,6 +63,12 @@ const config: ForgeConfig = {
   },
   makers: [
     new MakerSquirrel({ setupIcon: 'assets/icon.ico' }),
+    // For the Microsoft Store, which signs the package itself.
+    new MakerMSIX({
+      appManifest: MSIX_MANIFEST,
+      packageAssets: 'msix/assets',
+      sign: false,
+    }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),
