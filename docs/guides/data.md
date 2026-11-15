@@ -91,11 +91,11 @@ Connecting lists the database's tables, which also tests the connection.
 - **MySQL / MariaDB** (`mysql`), **PostgreSQL** (`postgres`), **Amazon Redshift** (`redshift`), **CockroachDB** (`cockroachdb`): Host, port, database, username and password. MySQL and MariaDB `BOOLEAN` columns arrive as 0/1 integers, which is how those servers store them.
 - **Trino / Starburst** (`trino`): Host, port, username, password, a catalog and a schema in it (Trino has no default schema).
 - **Microsoft SQL Server** (`sqlserver`): No ODBC driver needed.
-- **Oracle Database** (`oracle`): No Oracle client needed. The Database field takes the service name. Whole-number `NUMBER(n)` columns arrive as decimals.
+- **Oracle Database** (`oracle`): No Oracle client needed. The Service name field takes the service name, not a SID. Whole-number `NUMBER(n)` columns arrive as decimals.
 - **Snowflake** (`snowflake`): Username and password only (no key pair or single sign-on).
 - **Google BigQuery** (`bigquery`): A service account's JSON key.
 - **Databricks** (`databricks`): A personal access token.
-- **ClickHouse** (`clickhouse`): The HTTP(S) interface; the default port is 8443.
+- **ClickHouse** (`clickhouse`): The HTTP(S) interface: port 8443 is HTTPS (the default, ClickHouse Cloud), 8123 plain HTTP.
 - **MongoDB** (`mongodb`): A connection string; optionally which collections, a row limit and a JSON filter. Nested documents become `parent__field` columns and arrays become child tables; `Decimal128` values arrive as text (cast them in a transform).
 
 ### Business apps and APIs

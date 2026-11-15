@@ -50,10 +50,10 @@ def _url_builder(drivername: str, default_port: int | None) -> Callable[[dict], 
     return build
 
 
-def _server_fields(default_port: int, database_required: bool = True, database_label: str = "Database") -> list[Field]:
+def _server_fields(default_port: int, database_required: bool = True, database_label: str = "Database", port_help: str = "") -> list[Field]:
     return [
         Field("host", "Host", required=True, placeholder="db.example.com"),
-        Field("port", "Port", type="number", default=str(default_port)),
+        Field("port", "Port", type="number", default=str(default_port), help=port_help),
         Field("database", database_label, required=database_required),
         Field("username", "Username", required=True),
         Field("password", "Password", type="password", secret=True),
@@ -84,7 +84,7 @@ def _build_sqlite(settings: dict):
 def _build_oracle(settings: dict):
     from sqlalchemy.engine import URL
 
-    # The Database field is the service name. Put in the URL's database position it would be
+    # The Service name field (stored as "database"). Put in the URL's database position it would be
     # taken for a SID, which no modern Oracle listener registers.
     url = URL.create(
         "oracle+oracledb",
@@ -92,7 +92,7 @@ def _build_oracle(settings: dict):
         password=text(settings, "password"),
         host=required(settings, "host", "Host"),
         port=integer(settings, "port", 1521),
-        query={"service_name": required(settings, "database", "Database")},
+        query={"service_name": required(settings, "database", "Service name")},
     )
     return _sql_source(url, settings)
 
@@ -307,7 +307,7 @@ CONNECTORS: list[Connector] = [
         docs_url=DOCS,
         keywords=["clickhouse", "olap"],
         packages=["clickhouse-connect==1.9.0"],
-        fields=[*_server_fields(8443), TABLES_FIELD],
+        fields=[*_server_fields(8443, port_help="8443 is the HTTPS port (ClickHouse Cloud); 8123 is plain HTTP."), TABLES_FIELD],
         build=_url_builder("clickhousedb", 8443),
     ),
     Connector(
