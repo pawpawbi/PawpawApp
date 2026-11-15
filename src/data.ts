@@ -102,6 +102,8 @@ export interface SourceFile {
   resources: string[];
   tables: string[];
   lastLoadedAt: string | null;
+  /** Why the last load failed, or null. */
+  error: string | null;
 }
 
 function sourcePath(id: string) {
@@ -119,6 +121,7 @@ export async function readSource(id: string): Promise<SourceFile> {
     resources: Array.isArray(source.resources) ? source.resources : [],
     tables: Array.isArray(source.tables) ? source.tables : [],
     lastLoadedAt: source.lastLoadedAt ?? null,
+    error: typeof source.error === 'string' ? source.error : null,
   };
 }
 
@@ -186,6 +189,7 @@ export async function saveSource(
     resources: existing?.resources ?? [],
     tables: existing?.tables ?? [],
     lastLoadedAt: existing?.lastLoadedAt ?? null,
+    error: existing?.error ?? null,
   };
   await writeSource(source);
   // Entered here, so the source may run with the secrets saved here (confirmSource).
@@ -612,20 +616,33 @@ async function loadSource(
 ): Promise<LoadedTable[]> {
   const others = (await readAllSources()).filter((s) => s.id !== id);
   const transformedNames = Object.keys((await readTransformed()).tables);
-  const result = await runSourceJob<{ tables: LoadedTable[] }>(
-    id,
-    {
-      action: 'load',
-      resources,
-      data_dir: dataDir(),
-      pipeline_name: `pawpaw_${id}`,
-      reserved_tables: [
-        ...others.flatMap((s) => s.tables),
-        ...transformedNames,
-      ],
-    },
-    onProgress,
-  );
+  let result: { tables: LoadedTable[] };
+  try {
+    result = await runSourceJob<{ tables: LoadedTable[] }>(
+      id,
+      {
+        action: 'load',
+        resources,
+        data_dir: dataDir(),
+        pipeline_name: `pawpaw_${id}`,
+        reserved_tables: [
+          ...others.flatMap((s) => s.tables),
+          ...transformedNames,
+        ],
+      },
+      onProgress,
+    );
+  } catch (error) {
+    // Recorded for the project's errors, unless it was stopped, or is busy with another job
+    // (which leaves it in runningJobs).
+    if (!(error instanceof CancelledError) && !runningJobs.has(id)) {
+      await writeSource({
+        ...(await readSource(id)),
+        error: (error as Error).message,
+      }).catch(() => {});
+    }
+    throw error;
+  }
 
   // Tables this source loaded last time but no longer produces are removed.
   const source = await readSource(id);
@@ -636,6 +653,7 @@ async function loadSource(
     resources,
     tables,
     lastLoadedAt: new Date().toISOString(),
+    error: null,
   });
   return result.tables;
 }
@@ -745,7 +763,15 @@ async function saveDiagram(diagram: ModelDiagram) {
 // (src/shared/dependencies.ts) after the in-place transforms.
 
 export interface TransformsFile {
-  tables: Record<string, { sql: string; updatedAt: string }>;
+  tables: Record<
+    string,
+    {
+      sql: string;
+      updatedAt: string;
+      /** Why it failed when it was last re-applied after a load, or null. */
+      error: string | null;
+    }
+  >;
 }
 
 /** Keeps only well-formed transforms of safely named tables. */
@@ -753,11 +779,16 @@ export function cleanTransforms(value: unknown): TransformsFile {
   const tables: TransformsFile['tables'] = {};
   const raw = (value as TransformsFile | null)?.tables;
   for (const [table, t] of Object.entries(raw ?? {})) {
-    const transform = t as { sql?: unknown; updatedAt?: unknown };
+    const transform = t as {
+      sql?: unknown;
+      updatedAt?: unknown;
+      error?: unknown;
+    };
     if (SAFE_TABLE.test(table) && typeof transform?.sql === 'string') {
       tables[table] = {
         sql: transform.sql,
         updatedAt: String(transform.updatedAt ?? ''),
+        error: typeof transform.error === 'string' ? transform.error : null,
       };
     }
   }
@@ -780,7 +811,11 @@ export async function applyTransform(table: string, sql: string) {
     sql,
   });
   const transforms = await readTransforms();
-  transforms.tables[table] = { sql, updatedAt: new Date().toISOString() };
+  transforms.tables[table] = {
+    sql,
+    updatedAt: new Date().toISOString(),
+    error: null,
+  };
   await writeTransforms(transforms);
   await rebuildDownstream([table]);
   return result;
@@ -795,25 +830,30 @@ export async function removeTransform(table: string) {
   await rebuildDownstream([table]);
 }
 
-/** Re-runs every in-place transform. Returns an error message per failed table. */
+/**
+ * Re-runs every in-place transform, recording each one's error (or its success) in the file.
+ * Returns an error message per failed table.
+ */
 async function reapplyTransforms(): Promise<Record<string, string>> {
-  const transforms = (await readTransforms()).tables;
+  const file = await readTransforms();
   const loaded = new Set(
     await callPython<string[]>('list_tables', { data_dir: dataDir() }),
   );
   const errors: Record<string, string> = {};
-  for (const [table, transform] of Object.entries(transforms)) {
+  let changed = false;
+  for (const [table, transform] of Object.entries(file.tables)) {
     work.checkCancelled();
     if (!loaded.has(table)) continue;
+    let error: string | null = null;
     try {
       await callPython('apply_transform', {
         data_dir: dataDir(),
         table,
         sql: transform.sql,
       });
-    } catch (error) {
+    } catch (e) {
       work.checkCancelled();
-      errors[table] = (error as Error).message;
+      error = errors[table] = (e as Error).message;
       // Don't leave the previous result over the new data: show the original until it's fixed.
       // The query itself stays saved so it can be edited.
       await callPython('remove_transform', {
@@ -821,7 +861,12 @@ async function reapplyTransforms(): Promise<Record<string, string>> {
         table,
       }).catch(() => {});
     }
+    if (transform.error !== error) {
+      transform.error = error;
+      changed = true;
+    }
   }
+  if (changed) await writeTransforms(file);
   return errors;
 }
 

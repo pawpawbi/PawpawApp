@@ -10,6 +10,7 @@ import {
   hasOpenProject,
   registerProjectHandlers,
 } from './projects';
+import { registerProjectErrorHandlers } from './project-errors';
 import { registerPublishHandlers } from './published';
 import { registerPythonHandlers } from './python';
 import {
@@ -179,6 +180,7 @@ app.whenReady().then(async () => {
   await lockDownNetwork();
   ipcMain.handle('app:get-version', () => app.getVersion());
   registerProjectHandlers();
+  registerProjectErrorHandlers();
   registerPythonHandlers();
   registerDataHandlers();
   registerReportHandlers();

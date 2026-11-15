@@ -117,7 +117,8 @@ Identifies the project and the format version. Required.
   },
   "resources": ["Monthly Sales"],
   "tables": ["monthly_sales"],
-  "lastLoadedAt": "2026-10-17T09:41:12Z"
+  "lastLoadedAt": "2026-10-17T09:41:12Z",
+  "error": null
 }
 ```
 
@@ -128,6 +129,7 @@ Identifies the project and the format version. Required.
 | `resources`    | The connector resources the user chose to load. Empty means the connector's defaults                        |
 | `tables`       | The tables in `data/raw/` this source produced. No two sources may produce the same table                   |
 | `lastLoadedAt` | When the data was last loaded                                                                               |
+| `error`        | Why the last load failed, or `null`. A stopped load isn't recorded; the next successful load clears it      |
 
 **Credentials** (passwords, API keys, tokens: every connector field marked `secret`) are stored in the operating system's secure storage on the user's machine, via Electron's `safeStorage`, keyed by project ID and source ID. They are never in the file. When someone opens a project on another computer, the data and report work immediately; refreshing a source asks them to confirm its settings (see below) and to sign in again.
 
@@ -272,13 +274,14 @@ In-place transforms of loaded tables: each changes how one loaded table looks. T
   "tables": {
     "monthly_sales": {
       "sql": "SELECT order_id, CAST(order_date AS DATE) AS order_date, revenue FROM monthly_sales",
-      "updatedAt": "2026-10-17T11:20:00Z"
+      "updatedAt": "2026-10-17T11:20:00Z",
+      "error": null
     }
   }
 }
 ```
 
-The query can read any **loaded** table by name and always reads their original `raw/` data, so in-place transforms never depend on each other.
+The query can read any **loaded** table by name and always reads their original `raw/` data, so in-place transforms never depend on each other. `error` is why the transform failed when it was last re-applied after a load, or `null`; saving the transform again clears it.
 
 ### model/transformed.json
 
@@ -314,7 +317,9 @@ After data is loaded (one source or all of them), the app:
 1. Re-applies every in-place transform.
 2. Rebuilds every transformed table in dependency order, each after the transformed tables it reads.
 
-A failing transformed-table query has its table's old result removed and its error recorded; tables that read a failed table fail too. A failing in-place transform keeps its previous result.
+A failing transformed-table query has its table's old result removed and its error recorded; tables that read a failed table fail too. A failing in-place transform has its result removed, so the table shows its original data, and its error recorded; its query stays saved.
+
+The app lists every recorded error (a source's `error`, an in-place transform's or a transformed table's `error`, and a dataset's `error` in `model/datasets.json`) behind a warning icon in the top bar.
 
 ### Rules for all queries
 

@@ -301,6 +301,12 @@ async function previewFromSetup(table: string) {
             <p v-if="refreshErrors[s.id]" class="box-error error" role="alert">
               {{ refreshErrors[s.id] }}
             </p>
+            <p
+              v-else-if="s.error && !(s.id in refreshing)"
+              class="box-error error"
+            >
+              The last load failed: {{ s.error }}
+            </p>
 
             <div v-if="s.tables.length" class="table-chips">
               <button

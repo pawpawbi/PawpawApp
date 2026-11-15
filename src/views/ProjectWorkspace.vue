@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { errorMessage } from '../errors';
-import type { Project, WorkflowStage } from '../shared/types';
+import { errorStage, fixRequest } from '../shared/project-errors';
+import type { Project, ProjectError, WorkflowStage } from '../shared/types';
+import { assistantRequest, projectChanged } from '../ui-signals';
 import ChatPanel from '../components/ChatPanel.vue';
+import ErrorsIndicator from '../components/ErrorsIndicator.vue';
+import FeedbackDialog from '../components/FeedbackDialog.vue';
 import WorkflowSteps from '../components/WorkflowSteps.vue';
 import GetData from '../components/data/GetData.vue';
 import ModelData from '../components/ModelData.vue';
 import ReportCanvas from '../components/ReportCanvas.vue';
 import EditProject from './EditProject.vue';
+import ErrorsPage from './ErrorsPage.vue';
 import PublishPage from './PublishPage.vue';
 
 const props = defineProps<{ project: Project }>();
@@ -17,8 +22,8 @@ const emit = defineEmits<{ close: [] }>();
 // from the project and advances it; the user can also jump to a step from the top bar.
 const stage = ref<WorkflowStage>('data');
 
-// The Edit project and Publish screens, shown instead of the chat and the step's screen.
-const screen = ref<'workflow' | 'edit' | 'publish'>('workflow');
+// The Edit project, Publish and Errors screens, shown instead of the chat and the step's screen.
+const screen = ref<'workflow' | 'edit' | 'publish' | 'errors'>('workflow');
 
 async function goToStage(next: WorkflowStage) {
   screen.value = 'workflow';
@@ -26,6 +31,33 @@ async function goToStage(next: WorkflowStage) {
   stage.value = next;
   await window.api.projects.setStage(next);
 }
+
+// What's failing in the project (the warning icon and the Errors page). Read again whenever
+// the project changes: on each project:changed (unsaved changes, background work starting and
+// finishing) and each change by the assistant.
+const errors = ref<ProjectError[]>([]);
+let errorsRequest = 0;
+
+async function loadErrors() {
+  const request = ++errorsRequest;
+  try {
+    const list = await window.api.projects.errors();
+    if (request === errorsRequest) errors.value = list;
+  } catch {
+    // Keep the last list; the next change reads it again.
+  }
+}
+
+watch(() => props.project, loadErrors);
+watch(projectChanged, loadErrors);
+
+/** Back to the project, at the error's step, with the assistant asked to fix it. */
+async function fixWithAssistant(error: ProjectError) {
+  await goToStage(errorStage(error));
+  assistantRequest.value = fixRequest(error);
+}
+
+const showFeedback = ref(false);
 
 const saving = ref(false);
 const saveError = ref('');
@@ -58,7 +90,10 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown));
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown);
+  loadErrors();
+});
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 </script>
 
@@ -105,6 +140,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
       </div>
 
       <div class="save-area">
+        <button
+          class="feedback"
+          title="Send feedback to the PawpawBI team"
+          @click="showFeedback = true"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+            />
+          </svg>
+          Feedback
+        </button>
+        <ErrorsIndicator
+          v-if="errors.length"
+          :errors="errors"
+          :active="screen === 'errors'"
+          @open="screen = 'errors'"
+        />
         <span v-if="saveError" class="save-error" role="alert">{{
           saveError
         }}</span>
@@ -132,6 +185,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
       </div>
     </header>
 
+    <FeedbackDialog v-if="showFeedback" @close="showFeedback = false" />
+
     <div v-if="screen === 'edit'" class="body edit-body">
       <EditProject
         :project="project"
@@ -141,6 +196,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
     </div>
     <div v-else-if="screen === 'publish'" class="body edit-body">
       <PublishPage :project="project" @back="screen = 'workflow'" />
+    </div>
+    <div v-else-if="screen === 'errors'" class="body edit-body">
+      <ErrorsPage
+        :errors="errors"
+        @back="screen = 'workflow'"
+        @fix="fixWithAssistant"
+      />
     </div>
     <div v-show="screen === 'workflow'" class="body">
       <ChatPanel v-model:stage="stage" />
@@ -280,6 +342,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
   align-items: center;
   gap: 12px;
   white-space: nowrap;
+}
+
+.feedback {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.feedback:hover {
+  background: var(--surface-muted);
+  color: var(--ink);
 }
 
 .save-status {

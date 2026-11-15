@@ -27,7 +27,12 @@ import type {
   PickedElement,
   WorkflowStage,
 } from '../shared/types';
-import { pageToShow, pickedElement, projectChanged } from '../ui-signals';
+import {
+  assistantRequest,
+  pageToShow,
+  pickedElement,
+  projectChanged,
+} from '../ui-signals';
 import { INTRO_MESSAGE } from '../workflow';
 import AssistantSettings from './AssistantSettings.vue';
 import ReplyText from './ReplyText.vue';
@@ -328,6 +333,23 @@ function send() {
     images,
   );
 }
+
+// A request from elsewhere in the app ("Fix with assistant"), sent as the user's message. What
+// the user is writing (and any selected element or pasted images) stays for their next message.
+// When it can't be sent yet (a reply is running, or the assistant isn't set up), it goes in the
+// message box instead.
+watch(assistantRequest, (text) => {
+  if (!text) return;
+  assistantRequest.value = null;
+  if (!loading.value && !replying.value && ready.value) {
+    run(() => window.api.assistant.send(text), text);
+  } else {
+    draft.value = draft.value.trim()
+      ? `${draft.value.trimEnd()}\n\n${text}`
+      : text;
+    composer.value?.focus();
+  }
+});
 
 const retry = () => run(() => window.api.assistant.retry());
 const stop = () => window.api.assistant.stop();

@@ -135,6 +135,39 @@ test('signing up, signing in and out', async () => {
   await assert.rejects(pawpawServer(stub.url, token).account(), SignedOutError);
 });
 
+test('feedback is sent signed in or not', async () => {
+  await pawpawServer(stub.url).sendFeedback({
+    message: '  Lovely charts  ',
+    email: 'reply@example.com',
+    app: 'PawpawBI 1.0.0 on Windows 10.0.26200',
+  });
+  const { token } = await pawpawServer(stub.url).signUp(
+    'feedback@example.com',
+    'long enough',
+  );
+  // Signed in, replies go to the account, whatever address is given.
+  await pawpawServer(stub.url, token).sendFeedback({
+    message: 'More connectors',
+    email: 'other@example.com',
+  });
+  assert.deepEqual(stub.feedback.slice(-2), [
+    {
+      message: 'Lovely charts',
+      email: 'reply@example.com',
+      app: 'PawpawBI 1.0.0 on Windows 10.0.26200',
+    },
+    { message: 'More connectors', email: 'feedback@example.com', app: null },
+  ]);
+  await assert.rejects(
+    pawpawServer(stub.url).sendFeedback({ message: '   ' }),
+    /Write your feedback/,
+  );
+  await assert.rejects(
+    pawpawServer(stub.url).sendFeedback({ message: 'Hi', email: 'nope' }),
+    /valid email/,
+  );
+});
+
 test('the email address is verified through the emailed link, which the console opens', async () => {
   const { token, account } = await pawpawServer(stub.url).signUp(
     'verify@example.com',

@@ -36,7 +36,8 @@ After every load (one source, or **Refresh all data**), the app:
 
 Saving a transform or a transformed table rebuilds the tables built from it, and the datasets.
 If a transformed table's query fails, its old data is removed and its error recorded, and tables
-built from it fail too. A failing in-place transform keeps its previous result.
+built from it fail too. A failing in-place transform has its result removed (the table shows its
+original data) and its error recorded; its query stays saved.
 
 ## The Model data screen
 

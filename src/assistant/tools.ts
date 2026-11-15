@@ -99,7 +99,7 @@ export const READ_TOOLS: ToolSpec[] = [
   {
     name: 'list_sources',
     description:
-      'The data sources set up in this project: connector, non-secret settings, chosen resources, the tables each one loaded and when. Secret settings (passwords, keys) are never shown, only whether one is saved.',
+      'The data sources set up in this project: connector, non-secret settings, chosen resources, the tables each one loaded and when, and why the last load failed if it did. Secret settings (passwords, keys) are never shown, only whether one is saved.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
     describe: () => 'Looking at the data sources',
     run: async () => Promise.all((await readAllSources()).map(toDataSource)),
@@ -172,7 +172,7 @@ export const READ_TOOLS: ToolSpec[] = [
   {
     name: 'list_transforms',
     description:
-      "The project's SQL: in-place transforms (a loaded table's query, which reads loaded tables' original data and replaces the table) and transformed tables (new tables built by a query from any tables, with the tables they read and any build error).",
+      "The project's SQL: in-place transforms (a loaded table's query, which reads loaded tables' original data and replaces the table, with the error if it failed after the last load) and transformed tables (new tables built by a query from any tables, with the tables they read and any build error).",
     parameters: { type: 'object', properties: {}, additionalProperties: false },
     describe: () => 'Looking at the transforms',
     run: async () => ({
@@ -180,6 +180,7 @@ export const READ_TOOLS: ToolSpec[] = [
         ([table, t]) => ({
           table,
           sql: t.sql,
+          ...(t.error ? { error: t.error } : {}),
         }),
       ),
       transformed_tables: await listTransformed(),

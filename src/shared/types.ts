@@ -34,6 +34,18 @@ export interface RecentProject {
 export type WorkflowStage = 'data' | 'model' | 'visuals';
 
 /**
+ * Something in the open project that failed and is still failing, as recorded in the project:
+ * a data source's last load, a loaded table's in-place transform, a transformed table's build
+ * or a dataset's refresh. Wording and the assistant's request: shared/project-errors.ts.
+ */
+export interface ProjectError {
+  kind: 'source' | 'transform' | 'transformed' | 'dataset';
+  /** The source's, table's or dataset's name. */
+  name: string;
+  message: string;
+}
+
+/**
  * A message in chat/messages.jsonl. Tool messages, and the tool calls on assistant messages,
  * record the assistant's work so the conversation can continue where it left off.
  */
@@ -151,6 +163,8 @@ export interface DataSource {
   resources: string[];
   tables: string[];
   lastLoadedAt: string | null;
+  /** Why the last load failed, or null. */
+  error: string | null;
   /** Keys of secret fields that have a saved value on this computer. */
   savedSecrets: string[];
 }
@@ -422,6 +436,11 @@ export interface AccountApi {
   signOut: () => Promise<AccountState>;
   /** Opens a published report in the browser, signed in to it when the account is. */
   openReport: (reportId: string, url: string) => Promise<void>;
+  /**
+   * Sends feedback to the PawpawBI team, from the signed-in account or, when not signed in,
+   * with the address to reply to if one is given. Goes with the app's and Windows' versions.
+   */
+  sendFeedback: (message: string, email?: string) => Promise<void>;
 }
 
 /** How an upload to PawpawBI is going, for a progress bar. */
@@ -497,6 +516,8 @@ export interface ProjectsApi {
   appendChat: (messages: ChatMessage[], stage: WorkflowStage) => Promise<void>;
   /** Moves the workflow to a step (saved in chat/session.json). */
   setStage: (stage: WorkflowStage) => Promise<void>;
+  /** What's failing in the open project, in workflow order (src/project-errors.ts). */
+  errors: () => Promise<ProjectError[]>;
   /** Called whenever the open project changes, e.g. it gains unsaved changes. Returns an unsubscribe function. */
   onChanged: (callback: (project: Project) => void) => () => void;
 }

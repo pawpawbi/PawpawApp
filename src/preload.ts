@@ -29,6 +29,7 @@ const projects: ProjectsApi = {
   appendChat: (messages, stage) =>
     ipcRenderer.invoke('projects:append-chat', messages, stage),
   setStage: (stage) => ipcRenderer.invoke('projects:set-stage', stage),
+  errors: () => ipcRenderer.invoke('projects:errors'),
   onChanged: (callback) => {
     const listener = (_event: IpcRendererEvent, project: Project) =>
       callback(project);
@@ -140,6 +141,8 @@ const account: AccountApi = {
   signOut: () => ipcRenderer.invoke('account:sign-out'),
   openReport: (reportId, url) =>
     ipcRenderer.invoke('account:open-report', reportId, url),
+  sendFeedback: (message, email) =>
+    ipcRenderer.invoke('account:send-feedback', message, email),
 };
 
 const publish: PublishApi = {

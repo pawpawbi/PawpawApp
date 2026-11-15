@@ -358,6 +358,18 @@ export function pawpawServer(
     },
     account: async () => cleanAccount((await call('GET', '/account'))?.account),
 
+    /**
+     * Sends feedback to the PawpawBI team (POST /feedback), signed in or not. `email` is where to
+     * reply when not signed in; `app` describes the app and computer it came from.
+     */
+    sendFeedback: async (feedback: {
+      message: string;
+      email?: string;
+      app?: string;
+    }) => {
+      await call('POST', '/feedback', feedback);
+    },
+
     /** The account's organisations, its personal workspace first. */
     orgs: async () => cleanOrgs((await call('GET', '/orgs'))?.orgs),
 

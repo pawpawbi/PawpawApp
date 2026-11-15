@@ -1,7 +1,7 @@
 # PawpawBI server API
 
-The PawpawBI server holds accounts, organisations and published reports, and runs the built-in
-assistant. It's free to use, within fair-use limits; the assistant has a monthly allowance per
+The PawpawBI server holds accounts, organisations and published reports, runs the built-in
+assistant and takes feedback. It's free to use, within fair-use limits; the assistant has a monthly allowance per
 account. It never receives a report's files itself: it hands out presigned S3 URLs, the app
 uploads each file straight to S3, and browsers download them from S3.
 
@@ -342,3 +342,22 @@ connection stops it; what was generated still counts) or leaves before it starts
 still counts). The server keeps no conversation: it
 doesn't store or log requests or replies, only how many tokens each reply used, its model and
 when.
+
+## Feedback
+
+Feedback from the app goes to the PawpawBI team, signed in or not.
+
+| Request          | Body                        | Response                          |
+| ---------------- | --------------------------- | --------------------------------- |
+| `POST /feedback` | `{ message, email?, app? }` | `204`; `400` or `429` (see below) |
+
+- `message`: what the user wrote, at most 5,000 characters (leading and trailing spaces are
+  trimmed, and it can't be empty).
+- `email`: where to reply, if the user gives an address, when not signed in. Signed in, it's
+  ignored: replies go to the account's address.
+- `app`: the app's version and the computer's, e.g. `PawpawBI 1.4.0 on Windows 10.0.26200`, at
+  most 200 characters.
+- The server keeps the feedback (deleted with the account, when signed in) and emails it to the
+  team, who can reply to the address.
+- `400` `bad_request`: the message is empty or too long, or `email` isn't an email address.
+- `429` `too_many_requests`: too much feedback in a short time; the message says to try later.

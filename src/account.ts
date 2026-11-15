@@ -4,6 +4,7 @@
 // Google and Microsoft sign-in are planned. Server API: docs/pawpaw-server-api.md
 import { app, ipcMain, safeStorage, shell } from 'electron';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { removePath } from './fs-json';
 import {
@@ -160,6 +161,49 @@ function checkDetails(email: unknown, password: unknown) {
   return email.trim();
 }
 
+/** The longest feedback message the server takes. */
+const MAX_FEEDBACK = 5000;
+
+/**
+ * Sends feedback, as the signed-in account if there is one (its address is where the reply
+ * goes), otherwise with `email` if given. Nothing from the project goes with it: only the
+ * message, the address and the app's and Windows' versions.
+ */
+async function sendFeedback(message: unknown, email: unknown) {
+  if (typeof message !== 'string' || !message.trim()) {
+    throw new Error('Write your feedback first.');
+  }
+  if (message.trim().length > MAX_FEEDBACK) {
+    throw new Error(
+      `Keep your feedback to ${MAX_FEEDBACK.toLocaleString()} characters, or email support@pawpawbi.com instead.`,
+    );
+  }
+  const url = serverUrl();
+  if (!url) {
+    throw new Error(
+      "Sending feedback isn't available in this version. Email support@pawpawbi.com instead.",
+    );
+  }
+  const feedback = {
+    message: message.trim(),
+    app: `PawpawBI ${app.getVersion()} on Windows ${os.release()}`,
+  };
+  const reply =
+    typeof email === 'string' && email.trim() ? email.trim() : undefined;
+  const saved = await readSaved();
+  if (saved) {
+    try {
+      await pawpawServer(url, saved.token).sendFeedback(feedback);
+      return;
+    } catch (error) {
+      if (!(error instanceof SignedOutError)) throw error;
+      // Signed out elsewhere: forget the token here, and send it without.
+      await removePath(accountPath());
+    }
+  }
+  await pawpawServer(url).sendFeedback({ ...feedback, email: reply });
+}
+
 export function registerAccountHandlers() {
   ipcMain.handle('account:get', async () => {
     await refreshVerified();
@@ -210,6 +254,9 @@ export function registerAccountHandlers() {
     }
     await shell.openExternal(address);
   });
+  ipcMain.handle('account:send-feedback', (_event, message, email) =>
+    sendFeedback(message, email),
+  );
   ipcMain.handle('account:sign-out', async () => {
     const saved = await readSaved();
     const url = serverUrl();

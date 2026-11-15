@@ -15,3 +15,9 @@ export const projectChanged = ref(0);
 
 /** A report page the assistant asked to show; Build visuals shows it and clears this. */
 export const pageToShow = ref<string | null>(null);
+
+/**
+ * A message to send the assistant for the user, e.g. from "Fix with assistant" on the Errors
+ * page. The chat sends it (or, while it can't, puts it in the message box) and clears this.
+ */
+export const assistantRequest = ref<string | null>(null);

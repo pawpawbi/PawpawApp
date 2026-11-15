@@ -2,7 +2,7 @@
 // parts the app uses (accounts, publishing, refreshing), plus enough of organisations (roles,
 // members by invitation, report visibility) to try who may do what, and verifying the email
 // address. The "emails" (verification links and invitations) are kept in `emails` and printed when
-// run on its own; there's no console to open their links. Not the web console's cookie, password
+// run on its own, and feedback (signed in or not) in `feedback`; there's no console to open their links. Not the web console's cookie, password
 // resets or sessions. Its assistant gives the same short reply every time, within a pretend
 // allowance of ASSISTANT_REPLIES replies, and needs a verified address. It gives out and renews passes for reports, and GET
 // /reports/<id> takes them, but its viewer doesn't: there, only reports open to anyone with the
@@ -105,8 +105,14 @@ const safePath = (path) =>
 const versionedName = (path, version) =>
   path.replace(/(\.[^./]+)?$/, (extension) => `.${version}${extension}`);
 
-/** `onEmail` is called with each email "sent": its kind ('verify' or 'invite'), who to, and the token its link would carry. */
-export function startStubServer(port = 0, { onEmail = () => {} } = {}) {
+/**
+ * `onEmail` is called with each email "sent": its kind ('verify' or 'invite'), who to, and the
+ * token its link would carry. `onFeedback` with each feedback received.
+ */
+export function startStubServer(
+  port = 0,
+  { onEmail = () => {}, onFeedback = () => {} } = {},
+) {
   const secret = randomBytes(32);
   const users = new Map(); // email -> { id, salt, hash, verified }
   const tokens = new Map(); // token -> email
@@ -115,6 +121,7 @@ export function startStubServer(port = 0, { onEmail = () => {} } = {}) {
   const invitations = new Map(); // invitation token -> { id, orgId, email, role, invitedBy, createdAt }
   const passes = new Map(); // pass -> { reportId, email, session (its token), expires, renewableUntil }
   const emails = []; // { kind, to, token }, oldest first
+  const feedback = []; // { message, email (the account's, or the one given), app }, oldest first
   const orgs = new Map(); // id -> { name, personalOf (user id or null), members: Map(user id -> role) }
   const objects = new Map(); // S3 key -> { body (gzipped), contentType }
   // id -> { orgId, publishedBy, visibility, title, versions, current, deleted, publishedAt, refreshedAt }
@@ -481,6 +488,31 @@ export function startStubServer(port = 0, { onEmail = () => {} } = {}) {
         );
       }
 
+      // Feedback, signed in or not: from the account's address, or the one given.
+      if (req.method === 'POST' && route === '/feedback') {
+        const { message, email: given, app } = await json();
+        const text = typeof message === 'string' ? message.trim() : '';
+        if (!text) return fail(400, 'Write your feedback first.');
+        if ([...text].length > 5000)
+          return fail(
+            400,
+            'Keep your feedback to 5000 characters, or email us instead.',
+          );
+        const replyTo =
+          email ??
+          (typeof given === 'string' && given.trim() ? given.trim() : null);
+        if (replyTo !== null && !/^\S+@\S+\.\S+$/.test(replyTo))
+          return fail(400, 'Enter a valid email address.');
+        const entry = {
+          message: text,
+          email: replyTo,
+          app: typeof app === 'string' ? app : null,
+        };
+        feedback.push(entry);
+        onFeedback(entry);
+        return noContent();
+      }
+
       if (!email) return fail(401, 'Sign in to PawpawBI again.');
       const passRoute = /^\/reports\/([^/]+)\/pass$/.exec(route);
       if (req.method === 'POST' && passRoute) {
@@ -815,6 +847,7 @@ export function startStubServer(port = 0, { onEmail = () => {} } = {}) {
         url: `${origin}/v1`,
         origin,
         emails,
+        feedback,
         close: () => new Promise((done) => server.close(done)),
       });
     });
@@ -830,6 +863,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
           kind === 'invite'
             ? `Invitation to ${to}: accept, signed in as them, with POST /v1/invitations/accept {"token": "${token}"}`
             : `Email to ${to}: verify with POST /v1/auth/verify-email {"token": "${token}"}`,
+        ),
+      onFeedback: ({ message, email, app }) =>
+        console.log(
+          `Feedback from ${email ?? 'someone who left no address'} (${app ?? 'unknown app'}):
+${message}`,
         ),
     },
   );
