@@ -60,6 +60,32 @@ export interface ChatMessage {
    * changes. Saved with role "user"; shown as a line, not a message.
    */
   event?: boolean;
+  /** User messages: the part of a report page the message is about, if the user selected one. */
+  element?: PickedElement;
+  /** User messages: the images pasted with it, as file names in chat/images/. */
+  images?: string[];
+}
+
+/** An image pasted into the chat, as the app re-encoded it (shared/chat-images.ts). */
+export interface PastedImage {
+  mediaType: 'image/png' | 'image/jpeg';
+  /** The file, in base64. */
+  data: string;
+}
+
+/**
+ * Part of a report page the user selected in Build visuals to tell the assistant about
+ * (shared/picked-element.ts). It describes the page as shown, so it's untrusted content.
+ */
+export interface PickedElement {
+  /** The page it's on. */
+  pageId: string;
+  /** Where it is in the page: its ancestors and itself, e.g. "main > div#sales > svg". */
+  path: string;
+  /** Its opening tag. */
+  html: string;
+  /** The start of its text. */
+  text: string;
 }
 
 export interface ChatState {
@@ -627,8 +653,18 @@ export interface AssistantApi {
    * PawpawBI can't be reached).
    */
   usage: () => Promise<AllowanceUsage | null>;
-  /** Sends a message and resolves when the reply is finished. Progress arrives through onEvent. */
-  send: (text: string) => Promise<AssistantEnd>;
+  /**
+   * Sends a message, optionally about a selected part of a report page and with pasted images
+   * (the text can then be empty), and resolves when the reply is finished. Progress arrives
+   * through onEvent.
+   */
+  send: (
+    text: string,
+    element?: PickedElement | null,
+    images?: PastedImage[],
+  ) => Promise<AssistantEnd>;
+  /** One of the conversation's images (a name from a message's `images`), or null if it's gone. */
+  image: (name: string) => Promise<PastedImage | null>;
   /** Tries the last reply again (after an error), without sending a new message. */
   retry: () => Promise<AssistantEnd>;
   /** Answers an approval request: allow it, allow every change from now on, or don't. */

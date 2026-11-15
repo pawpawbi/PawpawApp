@@ -43,8 +43,13 @@ import {
   type DatasetEntry,
 } from './report-site';
 import { buildSingleFile } from './report-single-file';
-import { SINGLE_FILE_SCRIPTS, SITE_TEMPLATES } from './report-templates';
+import {
+  PICKER_SCRIPT,
+  SINGLE_FILE_SCRIPTS,
+  SITE_TEMPLATES,
+} from './report-templates';
 import { GUID, NAME, NAME_RULE } from './shared/ids';
+import { withPicker } from './shared/picked-element';
 import { withoutOldMenu } from './shared/site-menu';
 import type { Dataset, ReportFile, SavedReportFile } from './shared/types';
 import { REPORT_ORIGIN, REPORT_SCHEME } from './shared/types';
@@ -102,9 +107,13 @@ async function serveSite(request: Request): Promise<Response> {
   } catch {
     return notFound();
   }
-  // The app draws the menu above the page, so a page's own old one isn't shown.
+  // The app draws the menu above the page, so a page's own old one isn't shown. The picker
+  // lets the user select part of the page for the assistant; it's only added here, in the app.
   if (/^\/pages\/[^/]+\.html$/.test(url.pathname)) {
-    body = withoutOldMenu(new TextDecoder().decode(body));
+    body = withPicker(
+      withoutOldMenu(new TextDecoder().decode(body)),
+      PICKER_SCRIPT,
+    );
   }
   return new Response(body, {
     headers: {

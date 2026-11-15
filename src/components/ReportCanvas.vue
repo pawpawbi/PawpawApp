@@ -7,15 +7,17 @@ import {
   computed,
   onActivated,
   onBeforeUnmount,
+  onDeactivated,
   onMounted,
   ref,
   watch,
 } from 'vue';
 import { useUnsavedGuard } from '../composables/useUnsavedGuard';
 import { errorMessage } from '../errors';
+import { parsePickedElement } from '../shared/picked-element';
 import type { ReportFile } from '../shared/types';
 import { REPORT_ORIGIN } from '../shared/types';
-import { pageToShow, projectChanged } from '../ui-signals';
+import { pageToShow, pickedElement, projectChanged } from '../ui-signals';
 import CodeEditor from './CodeEditor.vue';
 import DatasetsPanel from './report/DatasetsPanel.vue';
 import ReportMenu from './report/ReportMenu.vue';
@@ -64,8 +66,16 @@ onMounted(() => {
     currentId.value = id;
     if (panel.value === 'html' && !editorDirty.value) openFile(pagePath());
   });
+  window.addEventListener('message', onFrameMessage);
+  window.addEventListener('keydown', onPickingKey);
 });
-onBeforeUnmount(() => stopListening?.());
+onBeforeUnmount(() => {
+  stopListening?.();
+  window.removeEventListener('message', onFrameMessage);
+  window.removeEventListener('keydown', onPickingKey);
+  pickedElement.value = null;
+});
+onDeactivated(() => setPicking(false));
 // Data may have changed on the other screens, so show the page afresh when coming back.
 onActivated(() => {
   if (!loaded.value) return;
@@ -106,6 +116,47 @@ async function createSite() {
   } finally {
     busy.value = '';
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Selecting part of the page, to tell the assistant about it. The page's frame does the
+// selecting (src/report-picker/picker.js, which the app adds to the page it shows) and sends a
+// description of what was clicked. The page is untrusted and could send anything, so messages
+// are read only while selecting, only from the frame, and checked (parsePickedElement).
+
+const frame = ref<HTMLIFrameElement | null>(null);
+const picking = ref(false);
+
+/** Tells the page whether selecting is on. Also when a page loads, which starts with it off. */
+function tellFrame() {
+  frame.value?.contentWindow?.postMessage(
+    { pp: 'pick', on: picking.value },
+    '*', // The sandboxed frame's origin is opaque, so it can't be named.
+  );
+}
+
+function setPicking(on: boolean) {
+  picking.value = on;
+  tellFrame();
+}
+
+function onFrameMessage(event: MessageEvent) {
+  const source = frame.value?.contentWindow;
+  if (!picking.value || !source || event.source !== source) return;
+  const message: unknown = event.data;
+  if (!message || typeof message !== 'object') return;
+  const { pp, element } = message as { pp?: unknown; element?: unknown };
+  if (pp === 'pick-cancelled') {
+    picking.value = false;
+  } else if (pp === 'picked') {
+    picking.value = false;
+    const picked = parsePickedElement(element, currentId.value);
+    if (picked) pickedElement.value = picked;
+  }
+}
+
+function onPickingKey(event: KeyboardEvent) {
+  if (picking.value && event.key === 'Escape') setPicking(false);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -330,6 +381,19 @@ function onEditorKey(event: KeyboardEvent) {
 
         <div class="actions">
           <button
+            v-if="current"
+            class="btn-ghost"
+            :class="{ on: picking }"
+            :aria-pressed="picking"
+            title="Click part of the page to tell the assistant about it"
+            @click="setPicking(!picking)"
+          >
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 4l14 6-6 2.5L10.5 19Z" />
+            </svg>
+            {{ picking ? 'Click part of the page…' : 'Select an element' }}
+          </button>
+          <button
             class="btn-ghost"
             :disabled="!!busy"
             title="Update the report's data from the tables and show it again"
@@ -385,8 +449,10 @@ function onEditorKey(event: KeyboardEvent) {
              storage or cookies. -->
           <iframe
             v-if="frameSrc"
+            ref="frame"
             :key="frameSrc"
             class="page"
+            @load="tellFrame"
             :src="frameSrc"
             sandbox="allow-scripts"
             referrerpolicy="no-referrer"

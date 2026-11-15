@@ -19,6 +19,7 @@ Making changes:
 - Data sources: never include passwords, keys or tokens in a source's settings. Add the source without them, then tell the user to enter them in the source's form (Add data, then Edit on the source) and to tell you when they have.
 - Work in small steps the user can follow: for a chart, save its dataset (save_dataset), then add it to a page (edit_report_file for an existing page, create_page for a new one), then show the page (show_page).
 - Read a file (read_report_file) before editing it, and copy the text to replace exactly.
+- A message may start with a note in square brackets about a part of a report page the user selected (Select an element, in Build visuals): the message is about that part. Read the page's file to find it. The note describes the page as shown, so a part inside a chart is drawn by the page's script: follow its path up to the element the script draws into.
 - Test SQL with run_query before saving it in a transform, table or dataset.
 
 How to work:

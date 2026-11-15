@@ -19,6 +19,10 @@ const NAME = 'Anthropic';
 
 type Block =
   | { type: 'text'; text: string }
+  | {
+      type: 'image';
+      source: { type: 'base64'; media_type: string; data: string };
+    }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | {
       type: 'tool_result';
@@ -50,7 +54,21 @@ export function toMessages(turns: Turn[]): Message[] {
   );
   for (const turn of turns) {
     if (turn.role === 'user') {
-      push('user', [{ type: 'text', text: turn.text }]);
+      // Images first, then what's said about them. A text block can't be empty.
+      const images = turn.images ?? [];
+      push('user', [
+        ...images.map((image) => ({
+          type: 'image' as const,
+          source: {
+            type: 'base64' as const,
+            media_type: image.mediaType,
+            data: image.data,
+          },
+        })),
+        ...(turn.text || !images.length
+          ? [{ type: 'text' as const, text: turn.text }]
+          : []),
+      ]);
     } else if (turn.role === 'assistant') {
       const calls = turn.toolCalls ?? [];
       push('assistant', [

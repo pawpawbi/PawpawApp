@@ -539,6 +539,22 @@ export function startStubServer(port = 0, { onEmail = () => {} } = {}) {
         ) {
           return fail(400, 'The request needs the model, stream and messages.');
         }
+        // Images: only in the user's messages, as PNG or JPEG bytes.
+        const badImage = request.messages.some(
+          (m) =>
+            Array.isArray(m?.content) &&
+            m.content.some(
+              (b) =>
+                b?.type === 'image' &&
+                (m.role !== 'user' ||
+                  b.source?.type !== 'base64' ||
+                  !['image/png', 'image/jpeg'].includes(b.source.media_type) ||
+                  typeof b.source.data !== 'string'),
+            ),
+        );
+        if (badImage) {
+          return fail(400, 'An image must be a base64 PNG or JPEG.');
+        }
         const used = assistantReplies.get(email) ?? 0;
         if (used >= ASSISTANT_REPLIES) {
           return send(429, {

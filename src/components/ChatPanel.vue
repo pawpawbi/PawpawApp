@@ -3,18 +3,31 @@
 // main process (src/assistant/), which saves every message to the project and streams
 // progress here: text as it's written, each tool it uses, and requests to approve changes.
 // Each change it makes can be undone from here.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue';
 import { PROVIDERS } from '../assistant/models';
+import { imageUrl, prepareImage } from '../chat-image';
 import { errorMessage } from '../errors';
+import { plain } from '../plain';
+import { MAX_MESSAGE_IMAGES, messageImages } from '../shared/chat-images';
+import { parsePickedElement, pickedLabel } from '../shared/picked-element';
 import type {
   ApprovalAnswer,
   AssistantChange,
   AssistantEnd,
   AssistantSettings as Settings,
   ChatMessage,
+  PastedImage,
+  PickedElement,
   WorkflowStage,
 } from '../shared/types';
-import { pageToShow, projectChanged } from '../ui-signals';
+import { pageToShow, pickedElement, projectChanged } from '../ui-signals';
 import { INTRO_MESSAGE } from '../workflow';
 import AssistantSettings from './AssistantSettings.vue';
 import ReplyText from './ReplyText.vue';
@@ -40,6 +53,68 @@ const approvals = ref<
 >([]);
 // The assistant's changes to this project, by ID, to show Undo or "Undone".
 const changes = ref<Record<string, AssistantChange>>({});
+
+// The part of a report page the user selected in Build visuals goes with the next message.
+const composer = ref<HTMLTextAreaElement | null>(null);
+watch(pickedElement, (element) => {
+  if (element) composer.value?.focus();
+});
+
+/** What a saved message is about, if the user selected part of a page for it. */
+function about(m: ChatMessage) {
+  // Read from the project file, so checked first.
+  const element = parsePickedElement(m.element);
+  return element ? pickedLabel(element) : '';
+}
+
+// Images pasted into the message box go with the next message. Each is redrawn within the
+// chat's limits first (chat-image.ts).
+const pasted = ref<{ id: number; image: PastedImage }[]>([]);
+let pastedCount = 0;
+
+async function onPaste(event: ClipboardEvent) {
+  const files = [...(event.clipboardData?.items ?? [])]
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .flatMap((item) => item.getAsFile() ?? []);
+  if (!files.length) return;
+  event.preventDefault();
+  error.value = '';
+  canRetry.value = false;
+  for (const file of files) {
+    if (pasted.value.length >= MAX_MESSAGE_IMAGES) {
+      error.value = `A message can have up to ${MAX_MESSAGE_IMAGES} images.`;
+      return;
+    }
+    try {
+      const image = await prepareImage(file);
+      pasted.value.push({ id: ++pastedCount, image });
+    } catch {
+      error.value =
+        "Couldn't read that image. Try copying it again, or save it as a PNG or JPEG first.";
+    }
+  }
+}
+
+// The conversation's images, by file name, fetched from the project as messages show them.
+const savedImages = ref<Record<string, string>>({});
+const requestedImages = new Set<string>();
+
+watch(
+  messages,
+  (list) => {
+    for (const name of list.flatMap(messageImages)) {
+      if (requestedImages.has(name)) continue;
+      requestedImages.add(name);
+      window.api.assistant
+        .image(name)
+        .then((image) => {
+          if (image) savedImages.value[name] = imageUrl(image);
+        })
+        .catch(() => undefined);
+    }
+  },
+  { deep: true },
+);
 
 async function loadChanges() {
   const list = await window.api.assistant.listChanges().catch(() => []);
@@ -71,7 +146,7 @@ const modelLabel = computed(() => {
 });
 const canSend = computed(
   () =>
-    draft.value.trim() !== '' &&
+    (draft.value.trim() !== '' || pasted.value.length > 0) &&
     !loading.value &&
     !replying.value &&
     ready.value,
@@ -151,6 +226,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   stopListening?.();
   window.removeEventListener('focus', recheckReady);
+  pickedElement.value = null;
 });
 
 const END_NOTES: Partial<Record<AssistantEnd, string>> = {
@@ -161,7 +237,12 @@ const END_NOTES: Partial<Record<AssistantEnd, string>> = {
   stopped: 'Stopped.',
 };
 
-async function run(request: () => Promise<AssistantEnd>, text?: string) {
+async function run(
+  request: () => Promise<AssistantEnd>,
+  text?: string,
+  element: PickedElement | null = null,
+  images: { id: number; image: PastedImage }[] = [],
+) {
   replying.value = true;
   error.value = '';
   endNote.value = '';
@@ -174,6 +255,8 @@ async function run(request: () => Promise<AssistantEnd>, text?: string) {
     // If the message wasn't saved, give it back to edit; otherwise offer to try again.
     if (messages.value.length === before && text !== undefined) {
       draft.value = text;
+      pickedElement.value ??= element;
+      if (!pasted.value.length) pasted.value = images;
     } else {
       canRetry.value = true;
     }
@@ -229,7 +312,21 @@ function send() {
   if (!canSend.value) return;
   const text = draft.value.trim();
   draft.value = '';
-  run(() => window.api.assistant.send(text), text);
+  const element = plain(pickedElement.value);
+  pickedElement.value = null;
+  const images = plain(pasted.value);
+  pasted.value = [];
+  run(
+    () =>
+      window.api.assistant.send(
+        text,
+        element,
+        images.map((p) => p.image),
+      ),
+    text,
+    element,
+    images,
+  );
 }
 
 const retry = () => run(() => window.api.assistant.retry());
@@ -282,7 +379,16 @@ function onKeydown(event: KeyboardEvent) {
           {{ m.summary ?? 'Undid changes' }}
         </div>
         <div v-else-if="m.role === 'user'" class="message user">
-          {{ m.text }}
+          <span v-if="about(m)" class="about">About {{ about(m) }}</span>
+          <template v-for="name in messageImages(m)" :key="name">
+            <img
+              v-if="savedImages[name]"
+              class="pasted-image"
+              :src="savedImages[name]"
+              alt="An image you pasted"
+            />
+          </template>
+          <span v-if="m.text">{{ m.text }}</span>
         </div>
         <div
           v-else-if="m.role === 'tool'"
@@ -389,14 +495,48 @@ function onKeydown(event: KeyboardEvent) {
     </div>
 
     <form class="composer" @submit.prevent="send">
+      <div v-if="pickedElement" class="picked">
+        <span class="picked-label">
+          About {{ pickedLabel(pickedElement) }}
+        </span>
+        <button
+          type="button"
+          class="picked-remove"
+          title="Don't include the selected part of the page"
+          aria-label="Don't include the selected part of the page"
+          @click="pickedElement = null"
+        >
+          ×
+        </button>
+      </div>
+      <ul v-if="pasted.length" class="thumbs" aria-label="Images to send">
+        <li v-for="(p, i) in pasted" :key="p.id" class="thumb">
+          <img :src="imageUrl(p.image)" :alt="`Image ${i + 1}`" />
+          <button
+            type="button"
+            class="thumb-remove"
+            :title="`Remove image ${i + 1}`"
+            :aria-label="`Remove image ${i + 1}`"
+            @click="pasted.splice(i, 1)"
+          >
+            ×
+          </button>
+        </li>
+      </ul>
       <textarea
+        ref="composer"
         v-model="draft"
         rows="3"
-        placeholder="Message the assistant…"
+        @paste="onPaste"
+        :placeholder="
+          pickedElement
+            ? 'What would you like to change about it?'
+            : 'Message the assistant…'
+        "
         @keydown="onKeydown"
       ></textarea>
       <div class="composer-footer">
-        <small>Shift + Enter for a new line</small>
+        <small>Shift + Enter for a new line. Paste to add an image.</small>
         <button v-if="replying" type="button" class="send stop" @click="stop">
           Stop
         </button>
@@ -553,6 +693,110 @@ function onKeydown(event: KeyboardEvent) {
 
 .composer:focus-within {
   border-color: var(--ink-faint);
+}
+
+.message.user .about {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.pasted-image {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.pasted-image:last-child {
+  margin-bottom: 0;
+}
+
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.thumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.thumb-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.thumb-remove:hover {
+  border-color: var(--ink-faint);
+  color: var(--ink);
+}
+
+.picked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+
+.picked-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.picked-remove {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.picked-remove:hover {
+  color: var(--ink);
 }
 
 .composer textarea {

@@ -51,7 +51,9 @@ Sales report.pawpaw            (ZIP archive)
 │
 └── chat/                      The assistant conversation
     ├── session.json           Current workflow stage
-    └── messages.jsonl         Message history, one message per line
+    ├── messages.jsonl         Message history, one message per line
+    └── images/
+        └── <id>.png           An image pasted into a message (.png or .jpg)
 ```
 
 Only `mimetype` and `manifest.json` are required. A brand-new project contains those and the default `report/`; every other folder is optional until something is put in it. A project without `report/` is valid, and the app offers to add one.
@@ -437,8 +439,16 @@ The conversation with the assistant, so it can pick up where it left off.
   | `changeId`   | Tool messages that changed the project: the change (Undo works while the project is open)    |
   | `declined`   | Tool messages: `true` if the user didn't allow the change                                    |
   | `event`      | `true` on a note to the assistant about something the user did, e.g. undoing changes         |
+  | `element`    | User messages about a part of a report page the user selected: see below                     |
+  | `images`     | User messages: the images pasted with it, as file names in `chat/images/` (at most 4)        |
+
+  `element` describes the selected part as the page showed it: `pageId` (the page), `path` (its ancestors and itself, e.g. `main > div#sales > svg`, at most 400 characters), `html` (its opening tag, at most 300) and `text` (the start of its text, at most 200). Like everything in the file it's untrusted: a value that isn't in this form is ignored.
+
+  A message with `images` can have an empty `text`.
 
   Tool results can contain samples of the project's data. A damaged line is skipped.
+
+- **`chat/images/`** holds the images pasted into messages. The app redraws each pasted image and saves it as a PNG or JPEG of at most 300,000 bytes and 1,568 pixels on its longest side, named `<id>.png` or `<id>.jpg` (`<id>` is up to 32 lowercase letters and digits). A name in a message's `images` that isn't in this form, or whose file is missing, larger, or not the kind of image its name says, is ignored.
 
 ## Opening and saving
 

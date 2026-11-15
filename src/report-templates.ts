@@ -1,6 +1,7 @@
 // The files a new report site starts with (src/report-template/), and the scripts of the report
 // as a single file (src/report-single-file/), bundled into the app.
 import type { SingleFileScripts } from './report-single-file';
+import picker from './report-picker/picker.js?raw';
 import frame from './report-single-file/frame.js?raw';
 import viewer from './report-single-file/viewer.js?raw';
 import type { SiteTemplates } from './report-site';
@@ -12,3 +13,6 @@ import page from './report-template/page.html?raw';
 export const SITE_TEMPLATES: SiteTemplates = { index, page, css, charts };
 
 export const SINGLE_FILE_SCRIPTS: SingleFileScripts = { viewer, frame };
+
+/** Added to pages shown in the app, for selecting part of one (src/report-picker/). */
+export const PICKER_SCRIPT: string = picker;

@@ -5,6 +5,7 @@
 import type {
   AssistantProvider,
   ChangeArea,
+  PastedImage,
   WorkflowStage,
 } from '../shared/types';
 import type { Target } from './changes';
@@ -35,7 +36,13 @@ export interface ToolCall {
 
 /** One turn of the conversation as the model sees it. */
 export type Turn =
-  | { role: 'user'; text: string }
+  | {
+      role: 'user';
+      /** Empty only when there are images. */
+      text: string;
+      /** Images the user pasted with it. */
+      images?: PastedImage[];
+    }
   | { role: 'assistant'; text: string; toolCalls?: ToolCall[] }
   | {
       role: 'tool';

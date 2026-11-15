@@ -6,6 +6,8 @@ import type {
   AssistantPermissions,
   AssistantProvider,
 } from '../shared/types';
+import { openProject } from '../projects';
+import { readImage } from './images';
 import { freeAssistant, providerFor } from './providers';
 import { answer, reply, stop } from './reply';
 import {
@@ -48,7 +50,14 @@ export function registerAssistantHandlers() {
       return null;
     }
   });
-  ipcMain.handle('assistant:send', (event, text: string) => reply(event, text));
+  ipcMain.handle(
+    'assistant:send',
+    (event, text: string, element?: unknown, images?: unknown) =>
+      reply(event, text, element, images),
+  );
+  ipcMain.handle('assistant:image', (_event, name: unknown) =>
+    readImage(openProject().filesDir, name),
+  );
   ipcMain.handle('assistant:retry', (event) => reply(event, null));
   ipcMain.handle('assistant:stop', () => stop());
   ipcMain.handle(

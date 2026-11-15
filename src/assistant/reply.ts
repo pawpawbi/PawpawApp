@@ -16,17 +16,20 @@ import {
 import { callPython } from '../python';
 import { listDatasets } from '../report';
 import { hasSite, readReport } from '../report-site';
+import { parsePickedElement } from '../shared/picked-element';
 import type {
   ApprovalAnswer,
   AssistantChange,
   AssistantEnd,
   ChatMessage,
+  PastedImage,
   TableSchema,
   WorkflowStage,
 } from '../shared/types';
 import { INTRO_MESSAGE, STAGES } from '../workflow';
 import { claim, emitter, message } from './chat';
-import { toTurns } from './history';
+import { imagesToSend, toTurns } from './history';
+import { checkImages, readImage, writeImages } from './images';
 import { NOT_ALLOWED, runAssistant } from './loop';
 import { modelTools } from './model-tools';
 import { SYSTEM_PROMPT, projectContext } from './prompt';
@@ -101,16 +104,24 @@ let running: AbortController | null = null;
 export const stop = () => running?.abort();
 
 /**
- * Runs a reply. With text, it's a new message from the user; with null, it tries the last
- * reply again (after an error), continuing from the conversation as saved.
+ * Runs a reply. With text, it's a new message from the user, optionally about a part of a report
+ * page they selected and with images they pasted (the text can then be empty); with null, it
+ * tries the last reply again (after an error), continuing from the conversation as saved.
  */
 export async function reply(
   event: IpcMainInvokeEvent,
   text: string | null,
+  element?: unknown,
+  images?: unknown,
 ): Promise<AssistantEnd> {
-  if (text !== null && (typeof text !== 'string' || !text.trim())) {
+  const pasted = text === null ? [] : checkImages(images);
+  if (
+    text !== null &&
+    (typeof text !== 'string' || (!text.trim() && !pasted.length))
+  ) {
     throw new Error('Type a message first.');
   }
+  const picked = parsePickedElement(element);
   const release = claim('reply');
   const controller = new AbortController();
   running = controller;
@@ -127,6 +138,7 @@ export async function reply(
     return await tracked('The assistant is replying', async () => {
       const stopOnCancel = work.onCancel(() => controller.abort());
       try {
+        const filesDir = openProject().filesDir;
         const chat = await loadChat();
         const added: ChatMessage[] = [];
         // The welcome message is saved with the first reply, like the chat panel shows it.
@@ -134,12 +146,28 @@ export async function reply(
           if (!chat.messages.length) {
             added.push(message({ role: 'assistant', text: INTRO_MESSAGE }));
           }
-          added.push(message({ role: 'user', text: text.trim() }));
+          const saved = await writeImages(filesDir, pasted);
+          added.push(
+            message({
+              role: 'user',
+              text: text.trim(),
+              ...(picked ? { element: picked } : {}),
+              ...(saved.length ? { images: saved } : {}),
+            }),
+          );
         } else if (!chat.messages.some((m) => m.role === 'user')) {
           throw new Error("There's nothing to try again.");
         }
         await appendChatMessages(added);
         for (const m of added) emit({ type: 'message', message: m });
+
+        // The conversation's latest images go with it; older ones are said to be left out.
+        const conversation = [...chat.messages, ...added];
+        const images = new Map<string, PastedImage>();
+        for (const name of imagesToSend(conversation)) {
+          const image = await readImage(filesDir, name);
+          if (image) images.set(name, image);
+        }
 
         // What each tool call is for, as the chat shows it, and the change it made (if any).
         const summaries = new Map<string, string>();
@@ -203,7 +231,7 @@ export async function reply(
           context: await snapshot(chat.stage),
           tools: toolsFor(ctx),
           approve,
-          history: toTurns([...chat.messages, ...added]),
+          history: toTurns(conversation, images),
           signal: controller.signal,
           onText: (t) => emit({ type: 'text', text: t }),
           onToolStart: (call, summary) => {

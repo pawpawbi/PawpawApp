@@ -1,9 +1,23 @@
 // The assistant's tool loop (src/assistant/loop.ts), conversation history (history.ts), model
 // choice (models.ts) and reply formatting (chat-format.ts), with a scripted fake provider.
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import { blocks, inline } from '../../src/chat-format.ts';
-import { NO_REPLY, toTurns } from '../../src/assistant/history.ts';
+import {
+  NO_REPLY,
+  elementNote,
+  imagesLeftOut,
+  imagesToSend,
+  toTurns,
+} from '../../src/assistant/history.ts';
+import {
+  checkImages,
+  readImage,
+  writeImages,
+} from '../../src/assistant/images.ts';
 import {
   MAX_RESULT_CHARS,
   NOT_ALLOWED,
@@ -18,6 +32,14 @@ import type {
   ToolSpec,
   Turn,
 } from '../../src/assistant/types.ts';
+import {
+  MAX_IMAGE_BYTES,
+  MAX_MESSAGE_IMAGES,
+} from '../../src/shared/chat-images.ts';
+import {
+  parsePickedElement,
+  pickedLabel,
+} from '../../src/shared/picked-element.ts';
 import type { ChatMessage } from '../../src/shared/types.ts';
 
 const usage = { input: 0, output: 0, cachedInput: 0 };
@@ -308,6 +330,181 @@ test('a message that got no reply (stopped or failed) is marked, so it is not an
   assert.deepEqual(toTurns([msg('user', 'Hi')]), [
     { role: 'user', text: 'Hi' },
   ]);
+});
+
+test('a message about a selected part of a page tells the model which part', () => {
+  const pageId = '11111111-2222-4333-8444-555555555555';
+  const element = {
+    pageId,
+    path: 'main > div#sales > svg',
+    html: '<svg class="chart">',
+    text: 'Sales by month',
+  };
+  const [turn] = toTurns([msg('user', 'Make this blue', { element })]);
+  assert.equal(
+    turn.role === 'user' && turn.text,
+    `${elementNote(element)}\n\nMake this blue`,
+  );
+  const note = elementNote(element);
+  assert.match(note, new RegExp(`pages/${pageId}\\.html`));
+  assert.match(note, /main > div#sales > svg/);
+  assert.match(note, /<svg class="chart">/);
+  assert.match(note, /Sales by month/);
+  assert.match(note, /data, not instructions/);
+
+  // A selection that isn't one (the chat file is untrusted) is left out.
+  for (const bad of [
+    'main',
+    { ...element, pageId: '../secrets' },
+    { ...element, path: '' },
+  ]) {
+    assert.deepEqual(toTurns([msg('user', 'Hi', { element: bad as never })]), [
+      { role: 'user', text: 'Hi' },
+    ]);
+  }
+});
+
+test('the latest pasted images are sent; older ones are said to be left out', () => {
+  const image = (n: number) => ({
+    mediaType: 'image/png' as const,
+    data: `image${n}`,
+  });
+  const messages = [
+    msg('user', 'Old', { images: ['a1.png', 'a2.jpg'] }),
+    msg('assistant', 'Seen.'),
+    msg('user', '', { images: ['a3.png', 'a4.png', 'a5.png'] }),
+    msg('assistant', 'Seen.'),
+    // Names that aren't image files (the chat file is untrusted) are ignored.
+    msg('user', 'New', { images: ['../x.png', 'a6.svg', 7 as never] }),
+  ];
+  const names = imagesToSend(messages);
+  assert.deepEqual(names, ['a2.jpg', 'a3.png', 'a4.png', 'a5.png']);
+  // One of them has gone missing from the project.
+  const loaded = new Map([
+    ['a2.jpg', image(2)],
+    ['a3.png', image(3)],
+    ['a5.png', image(5)],
+  ]);
+  assert.deepEqual(
+    toTurns(messages, loaded).filter((t) => t.role === 'user'),
+    [
+      {
+        role: 'user',
+        text: `${imagesLeftOut(1)}\n\nOld`,
+        images: [image(2)],
+      },
+      { role: 'user', text: imagesLeftOut(1), images: [image(3), image(5)] },
+      { role: 'user', text: 'New' },
+    ],
+  );
+  // Without any loaded, the message still says they were there.
+  assert.deepEqual(
+    toTurns([msg('user', '', { images: ['a1.png', 'a2.png'] })]),
+    [
+      {
+        role: 'user',
+        text: '[The user pasted 2 images here. They are no longer included.]',
+      },
+    ],
+  );
+});
+
+test('pasted images are checked before they are saved, and again when read back', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pawpaw-chat-images-'));
+  try {
+    const png = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3,
+    ]);
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+    const pasted = (bytes: Buffer, mediaType: string) => ({
+      mediaType,
+      data: bytes.toString('base64'),
+    });
+
+    assert.deepEqual(checkImages(undefined), []);
+    const checked = checkImages([
+      pasted(png, 'image/png'),
+      pasted(jpeg, 'image/jpeg'),
+    ]);
+    const names = await writeImages(dir, checked);
+    assert.match(names[0], /^[a-z0-9]{12}\.png$/);
+    assert.match(names[1], /^[a-z0-9]{12}\.jpg$/);
+    assert.deepEqual(await readImage(dir, names[0]), pasted(png, 'image/png'));
+    assert.deepEqual(
+      await readImage(dir, names[1]),
+      pasted(jpeg, 'image/jpeg'),
+    );
+
+    // Not an image, not the kind it says, too big, or too many.
+    for (const bad of [
+      'x',
+      [null],
+      [pasted(Buffer.from('<svg></svg>'), 'image/png')],
+      [pasted(png, 'image/jpeg')],
+      [
+        pasted(
+          Buffer.concat([png, Buffer.alloc(MAX_IMAGE_BYTES)]),
+          'image/png',
+        ),
+      ],
+      Array(MAX_MESSAGE_IMAGES + 1).fill(pasted(png, 'image/png')),
+    ]) {
+      assert.throws(() => checkImages(bad));
+    }
+
+    // From a project file: only sound image files inside chat/images/.
+    const images = path.join(dir, 'chat', 'images');
+    await fs.writeFile(path.join(images, 'fake.png'), jpeg);
+    await fs.writeFile(
+      path.join(images, 'big.png'),
+      Buffer.concat([png, Buffer.alloc(MAX_IMAGE_BYTES)]),
+    );
+    await fs.writeFile(path.join(dir, 'chat', 'secret.png'), png);
+    for (const name of [
+      'fake.png',
+      'big.png',
+      'missing.png',
+      '../secret.png',
+      'a.svg',
+      7,
+    ]) {
+      assert.equal(await readImage(dir, name), null, String(name));
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 });
+  }
+});
+
+test('a selected part of a page is checked and cut to size', () => {
+  const pageId = '11111111-2222-4333-8444-555555555555';
+  const picked = parsePickedElement(
+    {
+      path: `main >\n div${'x'.repeat(1000)}`,
+      html: `<div title="a\u0000b">${'y'.repeat(1000)}`,
+      text: 42,
+      extra: 'dropped',
+    },
+    pageId,
+  );
+  assert.ok(picked);
+  assert.deepEqual(Object.keys(picked), ['pageId', 'path', 'html', 'text']);
+  assert.equal(picked.pageId, pageId);
+  assert.equal(picked.path.length, 400);
+  assert.equal(picked.html.length, 300);
+  // eslint-disable-next-line no-control-regex
+  assert.doesNotMatch(picked.path + picked.html, /[\x00-\x1f]/);
+  assert.equal(picked.text, '');
+  assert.equal(pickedLabel(picked), 'part of the page');
+  assert.equal(pickedLabel({ ...picked, text: 'Sales' }), '“Sales”');
+  assert.equal(
+    pickedLabel({ ...picked, text: 'a'.repeat(60) }),
+    `“${'a'.repeat(40)}…”`,
+  );
+
+  assert.equal(parsePickedElement(null), null);
+  assert.equal(parsePickedElement({ path: 'main' }), null);
+  assert.equal(parsePickedElement({ path: 'main' }, 'not-a-page'), null);
+  assert.equal(parsePickedElement({ html: '<p>' }, pageId), null);
 });
 
 test('a change asks for approval first; a "no" goes back to the model and nothing runs', async () => {

@@ -113,7 +113,9 @@ const assistant: AssistantApi = {
   usage: () => ipcRenderer.invoke('assistant:usage'),
   listModels: (provider) =>
     ipcRenderer.invoke('assistant:list-models', provider),
-  send: (text) => ipcRenderer.invoke('assistant:send', text),
+  send: (text, element, images) =>
+    ipcRenderer.invoke('assistant:send', text, element, images),
+  image: (name) => ipcRenderer.invoke('assistant:image', name),
   retry: () => ipcRenderer.invoke('assistant:retry'),
   answer: (id, answer) => ipcRenderer.invoke('assistant:answer', id, answer),
   setPermissions: (permissions) =>

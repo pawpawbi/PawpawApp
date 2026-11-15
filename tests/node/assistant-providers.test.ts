@@ -140,6 +140,25 @@ test('Anthropic: a tool call left without a result gets a "not run" result', () 
   assert.match(JSON.stringify(messages[2].content), /not run/);
 });
 
+test('Anthropic: pasted images go ahead of the message, as their bytes', () => {
+  const image = { mediaType: 'image/png' as const, data: 'iVBORw0KGgo=' };
+  const messages = claude.toMessages([
+    { role: 'user', text: 'What is wrong here?', images: [image] },
+    { role: 'assistant', text: 'The axis.' },
+    { role: 'user', text: '', images: [image] },
+  ]);
+  const block = {
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' },
+  };
+  assert.deepEqual(messages[0].content, [
+    block,
+    { type: 'text', text: 'What is wrong here?' },
+  ]);
+  // No empty text block, which the API refuses.
+  assert.deepEqual(messages[2].content, [block]);
+});
+
 test('Anthropic: the fixed instructions and tools are cached; the project context is not', () => {
   const body = claude.buildBody(request);
   assert.equal(body.stream, true);
@@ -283,6 +302,27 @@ test('OpenAI: a tool call left without a result gets a "not run" result', () => 
   ]);
   assert.equal(messages[messages.length - 1].role, 'tool');
   assert.match(JSON.stringify(messages[messages.length - 1]), /not run/);
+});
+
+test('OpenAI: pasted images go with the message as data URLs', () => {
+  const image = { mediaType: 'image/jpeg' as const, data: '/9j/4AAQ' };
+  const messages = gpt.toMessages('s', '', [
+    { role: 'user', text: 'What is wrong here?', images: [image] },
+    { role: 'user', text: '', images: [image] },
+    { role: 'user', text: 'Thanks' },
+  ]);
+  const part = {
+    type: 'image_url',
+    image_url: { url: 'data:image/jpeg;base64,/9j/4AAQ' },
+  };
+  assert.deepEqual(messages.slice(1), [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'What is wrong here?' }, part],
+    },
+    { role: 'user', content: [part] },
+    { role: 'user', content: 'Thanks' },
+  ]);
 });
 
 test('OpenAI: the request asks for streaming with usage, and tools as functions', () => {

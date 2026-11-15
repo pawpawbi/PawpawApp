@@ -17,7 +17,16 @@ const API = 'https://api.openai.com/v1';
 const NAME = 'OpenAI';
 
 type Message =
-  | { role: 'system' | 'user'; content: string }
+  | { role: 'system'; content: string }
+  | {
+      role: 'user';
+      content:
+        | string
+        | (
+            | { type: 'text'; text: string }
+            | { type: 'image_url'; image_url: { url: string } }
+          )[];
+    }
   | {
       role: 'assistant';
       content: string | null;
@@ -48,7 +57,22 @@ export function toMessages(
   );
   for (const turn of turns) {
     if (turn.role === 'user') {
-      messages.push({ role: 'user', content: turn.text });
+      messages.push({
+        role: 'user',
+        content: turn.images?.length
+          ? [
+              ...(turn.text
+                ? [{ type: 'text' as const, text: turn.text }]
+                : []),
+              ...turn.images.map((image) => ({
+                type: 'image_url' as const,
+                image_url: {
+                  url: `data:${image.mediaType};base64,${image.data}`,
+                },
+              })),
+            ]
+          : turn.text,
+      });
     } else if (turn.role === 'assistant') {
       const calls = turn.toolCalls ?? [];
       if (!turn.text && !calls.length) continue;

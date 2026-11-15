@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { GUID } from '../../src/shared/ids.ts';
+import { withPicker } from '../../src/shared/picked-element.ts';
 import {
   MENU_CSS,
   menuHtml,
@@ -242,6 +243,28 @@ test('pages lose the menu they used to draw for themselves', () => {
     withoutOldMenu("pawpaw.nav('#pages');"),
     "pawpaw.nav('#pages');",
   );
+});
+
+test('the app adds its selecting script first in a page, before the page’s own', () => {
+  const script = 'var cost = "$1 $& </p>";';
+  const tag = `<script>${script}</script>`;
+  assert.equal(
+    withPicker(
+      '<!doctype html><html><head><title>x</title></head></html>',
+      script,
+    ),
+    `<!doctype html><html><head>${tag}<title>x</title></head></html>`,
+  );
+  // Not after a <header>, and never before the doctype (which would change how it's laid out).
+  assert.equal(
+    withPicker('<!DOCTYPE html><body><header></header></body>', script),
+    `<!DOCTYPE html>${tag}<body><header></header></body>`,
+  );
+  assert.equal(
+    withPicker('<html lang="en"><body></body></html>', script),
+    `<html lang="en">${tag}<body></body></html>`,
+  );
+  assert.equal(withPicker('<p>Hi</p>', script), `${tag}<p>Hi</p>`);
 });
 
 test('publishing writes the menu and its styles into each page', async () => {

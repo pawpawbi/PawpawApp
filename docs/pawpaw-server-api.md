@@ -321,7 +321,8 @@ account has a free monthly allowance.
 it as it reads Anthropic's. The body may only have `model` (one of `models`), `max_tokens` (at
 most `maxTokens`), `stream` (`true`), `system` (text, or text blocks), `messages` (`user` and
 `assistant` messages of text, `tool_use` and `tool_result` blocks; a tool result's content is
-text) and `tools` (the app's own: `name`, `description` and `input_schema`, never Anthropic's
+text; a `user` message may also have `image` blocks, each with a `source` of `type` `base64`,
+`media_type` `image/png` or `image/jpeg`, and `data`, never a URL) and `tools` (the app's own: `name`, `description` and `input_schema`, never Anthropic's
 server tools), and is at most 4 MB. Any block or tool may have `cache_control`
 `{"type": "ephemeral"}`. Anything else is `400`. The app sends
 `Authorization: Bearer <token>` instead of an API key; `anthropic-version` and other Anthropic
