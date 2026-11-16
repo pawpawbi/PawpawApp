@@ -9,6 +9,7 @@ import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { clearMissingSignatures } from './scripts/missing-signatures';
 
 /** What's in python/ only for development, taken back out of the packaged app. */
 const PYTHON_DEV_ONLY = [
@@ -49,14 +50,22 @@ const config: ForgeConfig = {
       );
     },
     // extraResource copies all of python/; the installers are made from what's left here.
-    postPackage: async (_config, { outputPaths }) => {
+    postPackage: async (_config, { platform, outputPaths }) => {
       for (const output of outputPaths) {
+        const python = path.join(output, 'resources', 'python');
         for (const name of PYTHON_DEV_ONLY) {
-          await fs.rm(path.join(output, 'resources', 'python', name), {
+          await fs.rm(path.join(python, name), {
             recursive: true,
             force: true,
             maxRetries: 5,
           });
+        }
+        // Signing the Store package fails on a DLL whose header points to a missing signature.
+        if (platform === 'win32') {
+          for (const name of await clearMissingSignatures(python))
+            console.log(
+              `Cleared the missing signature's header entry in ${name}`,
+            );
         }
       }
     },

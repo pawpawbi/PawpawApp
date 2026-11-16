@@ -3,9 +3,9 @@
   The package manifest for the Microsoft Store (MSIX) build. forge.config.mts fills in
   the version from package.json.
 
-  Identity Name and Publisher, and PublisherDisplayName, are placeholders: the Store gives the
-  real ones when the app's name is reserved (Partner Center, "Product identity"), and a package
-  uploaded with any others is refused.
+  Identity Name and Publisher, and PublisherDisplayName, are the ones the Store gave when the
+  app's name was reserved (Partner Center, "Product identity"); a package uploaded with any
+  others is refused. A package signed for testing needs a certificate whose subject is Publisher.
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -18,7 +18,7 @@
     Name="PawpawBI.PawpawBI"
     ProcessorArchitecture="x64"
     Version="0.0.0.0"
-    Publisher="CN=PawpawBI" />
+    Publisher="CN=066F51A1-81C9-4E2C-B779-7433D5F780C4" />
   <Properties>
     <DisplayName>PawpawBI</DisplayName>
     <PublisherDisplayName>PawpawBI</PublisherDisplayName>

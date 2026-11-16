@@ -18,6 +18,7 @@ import { plain } from '../plain';
 import { MAX_MESSAGE_IMAGES, messageImages } from '../shared/chat-images';
 import { parsePickedElement, pickedLabel } from '../shared/picked-element';
 import type {
+  AccountState,
   ApprovalAnswer,
   AssistantChange,
   AssistantEnd,
@@ -164,14 +165,49 @@ async function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
 
 let stopListening: (() => void) | null = null;
 
+// The PawpawBI account, for the free assistant: signed up but not verified yet, the chat asks
+// the user to open the link emailed to them instead of to sign up.
+const account = ref<AccountState | null>(null);
+const checking = ref(false);
+const stillUnverified = ref(false);
+const awaitingVerify = computed(
+  () =>
+    settings.value?.provider === 'pawpaw' &&
+    !ready.value &&
+    !!account.value?.available &&
+    !!account.value.email &&
+    !account.value.emailVerified,
+);
+
 /**
  * Back from verifying the email address in the browser: check again (reading the account asks
  * PawpawBI whether it's verified now).
  */
 async function recheckReady() {
-  if (ready.value || loading.value) return;
-  await window.api.account.get();
-  settings.value = await window.api.assistant.getSettings();
+  if (ready.value || loading.value || checking.value) return;
+  checking.value = true;
+  try {
+    account.value = await window.api.account.get().catch(() => account.value);
+    settings.value = await window.api.assistant.getSettings();
+  } finally {
+    checking.value = false;
+  }
+}
+
+/** "Check again": as on focus, saying so if the address still isn't verified. */
+async function checkVerified() {
+  stillUnverified.value = false;
+  await recheckReady();
+  stillUnverified.value = awaitingVerify.value;
+}
+
+/** Signing up or in happens in Assistant settings; the setup prompt follows it on closing. */
+async function closeSettings() {
+  showSettings.value = false;
+  stillUnverified.value = false;
+  if (!ready.value) {
+    account.value = await window.api.account.get().catch(() => null);
+  }
 }
 
 onMounted(async () => {
@@ -216,13 +252,15 @@ onMounted(async () => {
     scrollToBottom();
   });
 
-  const [chat, current] = await Promise.all([
+  const [chat, current, signedIn] = await Promise.all([
     window.api.projects.loadChat(),
     window.api.assistant.getSettings(),
+    window.api.account.get().catch(() => null),
   ]);
   stage.value = chat.stage;
   messages.value = chat.messages;
   settings.value = current;
+  account.value = signedIn;
   await loadChanges();
   loading.value = false;
   await scrollToBottom('auto');
@@ -384,7 +422,31 @@ function onKeydown(event: KeyboardEvent) {
       </button>
     </div>
 
-    <div v-if="!loading && !ready" class="setup">
+    <div v-if="!loading && awaitingVerify" class="setup">
+      <p>
+        <strong>Verify your email address to start.</strong> We emailed a link
+        to {{ account!.email }}. Open it, then come back here.
+      </p>
+      <p v-if="stillUnverified" class="setup-note" role="status">
+        Your address isn't verified yet. Check your spam folder{{
+          account!.consoleUrl ? ', or send a new link' : ''
+        }}.
+      </p>
+      <div class="setup-actions">
+        <button class="btn-primary" :disabled="checking" @click="checkVerified">
+          {{ checking ? 'Checking…' : 'Check again' }}
+        </button>
+        <a
+          v-if="account!.consoleUrl"
+          :href="`${account!.consoleUrl}/#/account`"
+          target="_blank"
+          rel="noreferrer"
+          >Send a new link</a
+        >
+      </div>
+    </div>
+
+    <div v-else-if="!loading && !ready" class="setup">
       <p>
         The assistant is free with a PawpawBI account. Sign up or sign in to
         start, or use your own Claude or ChatGPT key.
@@ -570,7 +632,7 @@ function onKeydown(event: KeyboardEvent) {
 
     <AssistantSettings
       v-if="showSettings"
-      @close="showSettings = false"
+      @close="closeSettings"
       @changed="settings = $event"
     />
   </aside>
@@ -925,6 +987,22 @@ function onKeydown(event: KeyboardEvent) {
 
 .setup p {
   margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.setup .setup-note {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.setup-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.setup-actions a {
+  color: var(--accent);
   font-size: 13px;
 }
 
